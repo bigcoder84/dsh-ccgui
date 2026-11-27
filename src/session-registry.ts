@@ -11,7 +11,7 @@ import type { ToolRunContext } from '@deepseek-ai/dsh-tools'
 import type { ApprovalOutcome } from '@deepseek-ai/dsh-user-approval'
 import type { CliSession, PermissionAsk } from './cli-session.ts'
 import { CLI_TOOL_NAME, cliRoute, DEFAULT_MODEL_ID } from './constants.ts'
-import type { CliModeList } from './model-options.ts'
+import type { CliChoiceList, CliModeList, CliSpeedList } from './model-options.ts'
 import type { PtcWrap } from './session/ptc-call.ts'
 import type { ToolOutcome } from './tool-record.ts'
 
@@ -38,6 +38,10 @@ export interface SessionStart {
   readonly initialMode?: string
   /** Told when the CLI would not take that mode, so no replacement starts on it again. */
   readonly onModeRefused?: (mode: string) => void
+  /** A fast mode picked before this session existed, for the same CLI. */
+  readonly initialSpeed?: string
+  /** Told when the CLI would not take that fast mode, so no replacement starts on it again. */
+  readonly onSpeedRefused?: (value: string) => void
 }
 
 /** The harness facilities the registry uses. */
@@ -65,6 +69,23 @@ interface LiveSession {
   readonly session: CliSession
 }
 
+/** The CLI settings a user can pick before the CLI has started. */
+type Setting = 'mode' | 'speed'
+
+/** A setting picked for one CLI route. */
+interface PickedValue {
+  readonly provider: string
+  readonly value: string
+}
+
+/** What is known of one setting, and a pick the CLI has not confirmed. */
+interface SettingState {
+  readonly list?: CliChoiceList
+  readonly pending?: string
+}
+
+const ERROR_CODES: Readonly<Record<Setting, string>> = { mode: 'CLI_MODE_FAILED', speed: 'CLI_SPEED_FAILED' }
+
 const NO_MESSAGES: ReadonlySet<string> = new Set()
 /** This preset's tool executor only accepts `run_code`, so mirrored calls go out wrapped in it. */
 const PTC_PRESET = 'ptc'
@@ -79,8 +100,8 @@ export class CliSessionRegistry {
   private sessions: ReadonlyMap<string, LiveSession> = new Map()
   private stopping: ReadonlyMap<string, Promise<void>> = new Map()
   private turnMessages: ReadonlyMap<string, ReadonlySet<string>> = new Map()
-  /** Native modes picked while their session had no CLI yet, by harness session. */
-  private pickedModes: ReadonlyMap<string, { readonly provider: string; readonly mode: string }> = new Map()
+  /** Settings picked while their session had no CLI yet, by setting and harness session. */
+  private picks: Readonly<Record<Setting, ReadonlyMap<string, PickedValue>>> = { mode: new Map(), speed: new Map() }
 
   constructor(
     agents: readonly CliAgentConfig[],
@@ -172,6 +193,25 @@ export class CliSessionRegistry {
   }
 
   /**
+   * Read the model a session has selected, which applies with its next message.
+   * @param sessionId - the harness session.
+   * @returns the model id, or undefined when the session or its selection is unknown.
+   */
+  selectedModel(sessionId: string): string | undefined {
+    return this.deps.getAgent(sessionId)?.model.current()?.model
+  }
+
+  /**
+   * Whether a session has a CLI session on this route, started or about to start.
+   * @param sessionId - the harness session.
+   * @param provider - the CLI route the composer is showing.
+   * @returns true once the first step has created it, until it is stopped.
+   */
+  isLive(sessionId: string, provider: string): boolean {
+    return this.sessions.get(sessionId)?.provider === provider
+  }
+
+  /**
    * Read the native modes a CLI reported for a session. A live CLI's own answer wins: it
    * may have changed mode during a turn, after the catalog last heard from it, and only it
    * knows whether a pick is still on its way.
@@ -180,16 +220,19 @@ export class CliSessionRegistry {
    * @returns the modes in the CLI's own ids and names, and a pick the CLI has not confirmed.
    */
   modeStateFor(sessionId: string, provider: string): { readonly modes?: CliModeList; readonly pending?: string } {
-    const live = this.sessions.get(sessionId)
-    if (live?.provider === provider) {
-      const { modes, pendingMode } = live.session
-      return {
-        ...(modes === undefined ? {} : { modes }),
-        ...(pendingMode === undefined ? {} : { pending: pendingMode }),
-      }
-    }
-    const picked = this.pickedModes.get(sessionId)
-    return picked?.provider === provider ? { pending: picked.mode } : {}
+    const { list, ...pending } = this.stateFor('mode', sessionId, provider)
+    return { ...(list === undefined ? {} : { modes: list }), ...pending }
+  }
+
+  /**
+   * Read the fast mode a CLI reported for a session, read like {@link modeStateFor}.
+   * @param sessionId - the harness session.
+   * @param provider - the CLI route the composer is showing.
+   * @returns the fast mode in the CLI's own values, and a pick the CLI has not confirmed.
+   */
+  speedStateFor(sessionId: string, provider: string): { readonly speed?: CliSpeedList; readonly pending?: string } {
+    const { list, ...pending } = this.stateFor('speed', sessionId, provider)
+    return { ...(list === undefined ? {} : { speed: list }), ...pending }
   }
 
   /**
@@ -203,17 +246,19 @@ export class CliSessionRegistry {
    * @throws when the route is not a configured CLI, or the CLI refuses the change.
    */
   async switchMode(sessionId: string, provider: string, mode: string): Promise<CliModeList | undefined> {
-    if (!this.agentsByProvider.has(provider)) throw new LlmError(`未知的 CLI 路由：${provider}`, 'CLI_MODE_FAILED')
-    this.pickedModes = new Map([...this.pickedModes, [sessionId, { provider, mode }]])
-    const live = this.sessions.get(sessionId)
-    if (live?.provider !== provider) return undefined
-    try {
-      return await live.session.switchMode(mode)
-    } catch (error: unknown) {
-      // The CLI refused the change, so the pick must not resurface with a later step.
-      this.forgetPick(sessionId, mode)
-      throw error
-    }
+    return this.switchSetting('mode', sessionId, provider, mode)
+  }
+
+  /**
+   * Turn a session's fast mode on or off, held and handed over like a mode; see {@link switchMode}.
+   * @param sessionId - the harness session.
+   * @param provider - the CLI route the composer is showing.
+   * @param value - the value, unchanged.
+   * @returns the fast mode as the CLI reports it, or undefined while there is no CLI to ask.
+   * @throws when the route is not a configured CLI, or the CLI refuses the change.
+   */
+  async switchSpeed(sessionId: string, provider: string, value: string): Promise<CliSpeedList | undefined> {
+    return this.switchSetting('speed', sessionId, provider, value)
   }
 
   /**
@@ -252,7 +297,7 @@ export class CliSessionRegistry {
     const session = this.deps.createSession(config, sessionId, cwd, {
       sentMessageIds: current?.session.sentMessageIds ?? NO_MESSAGES,
       after: this.stopping.get(sessionId) ?? Promise.resolve(),
-      ...this.startMode(sessionId, provider),
+      ...this.startSettings(sessionId, provider),
     })
     this.sessions = new Map([...this.sessions, [sessionId, { provider, session }]])
     return session
@@ -280,7 +325,7 @@ export class CliSessionRegistry {
    */
   disposeSession(sessionId: string): void {
     this.turnMessages = without(this.turnMessages, sessionId)
-    this.pickedModes = without(this.pickedModes, sessionId)
+    this.picks = { mode: without(this.picks.mode, sessionId), speed: without(this.picks.speed, sessionId) }
     this.stopSession(sessionId)
   }
 
@@ -299,16 +344,67 @@ export class CliSessionRegistry {
     if (typeof provider === 'string' && this.agentsByProvider.has(provider)) this.deps.onCliSelected(provider)
   }
 
-  /** A mode picked before the CLI started, if it was picked for this route. */
-  private startMode(sessionId: string, provider: string): Pick<SessionStart, 'initialMode' | 'onModeRefused'> {
-    const picked = this.pickedModes.get(sessionId)
-    if (picked?.provider !== provider) return {}
-    return { initialMode: picked.mode, onModeRefused: (mode) => this.forgetPick(sessionId, mode) }
+  /** A live CLI's own answer wins: only it knows whether a pick is still on its way. */
+  private stateFor(setting: Setting, sessionId: string, provider: string): SettingState {
+    const live = this.sessions.get(sessionId)
+    if (live?.provider === provider) {
+      const { session } = live
+      const [list, pending] =
+        setting === 'mode' ? [session.modes, session.pendingMode] : [session.speed, session.pendingSpeed]
+      return { ...(list === undefined ? {} : { list }), ...(pending === undefined ? {} : { pending }) }
+    }
+    const picked = this.pickFor(setting, sessionId, provider)
+    return picked === undefined ? {} : { pending: picked }
+  }
+
+  private async switchSetting(
+    setting: Setting,
+    sessionId: string,
+    provider: string,
+    value: string,
+  ): Promise<CliChoiceList | undefined> {
+    if (!this.agentsByProvider.has(provider)) throw new LlmError(`未知的 CLI 路由：${provider}`, ERROR_CODES[setting])
+    this.picks = { ...this.picks, [setting]: new Map([...this.picks[setting], [sessionId, { provider, value }]]) }
+    const live = this.sessions.get(sessionId)
+    if (live?.provider !== provider) return undefined
+    try {
+      return await (setting === 'mode' ? live.session.switchMode(value) : live.session.switchSpeed(value))
+    } catch (error: unknown) {
+      // The CLI refused the change, so the pick must not resurface with a later step.
+      this.forgetPick(setting, sessionId, value)
+      throw error
+    }
+  }
+
+  /** The value picked for this route, if any. */
+  private pickFor(setting: Setting, sessionId: string, provider: string): string | undefined {
+    const picked = this.picks[setting].get(sessionId)
+    return picked?.provider === provider ? picked.value : undefined
+  }
+
+  /**
+   * Settings picked before the CLI started, if they were picked for this route. The refusal
+   * callbacks go with every session: a pick made while its CLI is still starting is settled
+   * with the first message too, and a refused one must not come back with a replacement.
+   */
+  private startSettings(
+    sessionId: string,
+    provider: string,
+  ): Pick<SessionStart, 'initialMode' | 'onModeRefused' | 'initialSpeed' | 'onSpeedRefused'> {
+    const mode = this.pickFor('mode', sessionId, provider)
+    const speed = this.pickFor('speed', sessionId, provider)
+    return {
+      ...(mode === undefined ? {} : { initialMode: mode }),
+      ...(speed === undefined ? {} : { initialSpeed: speed }),
+      onModeRefused: (value) => this.forgetPick('mode', sessionId, value),
+      onSpeedRefused: (value) => this.forgetPick('speed', sessionId, value),
+    }
   }
 
   /** Drop a refused pick, unless the user has picked another since. */
-  private forgetPick(sessionId: string, mode: string): void {
-    if (this.pickedModes.get(sessionId)?.mode === mode) this.pickedModes = without(this.pickedModes, sessionId)
+  private forgetPick(setting: Setting, sessionId: string, value: string): void {
+    if (this.picks[setting].get(sessionId)?.value !== value) return
+    this.picks = { ...this.picks, [setting]: without(this.picks[setting], sessionId) }
   }
 
   private recordTurnMessage(sessionId: string, id: unknown): void {

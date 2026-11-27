@@ -28,6 +28,9 @@ export const EFFORT_CLASS = 'dsh-cli-model-effort'
 export const MODE_CLASS = 'dsh-cli-model-mode'
 /** The CLI's mode control, sitting in the composer's permission seat. */
 export const MODE_SEAT_CLASS = 'dsh-cli-mode-seat'
+/** The CLI's fast-mode toggle, beside its mode control. */
+export const SPEED_CLASS = 'dsh-cli-speed'
+export const SPEED_MARK_CLASS = 'dsh-cli-speed-mark'
 
 // On a CLI session the first rule hides the harness's seat, which renders right after this
 // control's slot; the anchors set `display: contents` inline, hence `!important`. A harness
@@ -185,5 +188,10 @@ export const MODEL_MENU_STYLES = `
 .${MODE_SEAT_CLASS} { display: inline-flex; min-width: 0; }
 .${MODE_SEAT_CLASS} .${TRIGGER_CLASS} { padding: 0 4px 0 8px; color: var(--dsw-alias-label-secondary); }
 [data-composer-card]:has(.${MODE_CLASS}) [aria-label^="访问模式"] { display: none !important; }
+/* Fast mode reads like the mode beside it until it is on; then it takes the accent color. */
+.${SPEED_CLASS} { display: var(--dsh-composer-model-text-display, block); flex: 0 0 auto; }
+.${SPEED_CLASS} .${TRIGGER_CLASS} { padding: 0 6px 0 4px; color: var(--dsw-alias-label-caption); }
+.${SPEED_CLASS} .${TRIGGER_CLASS}[aria-pressed="true"] { color: var(--dsw-alias-state-business-primary); }
+.${SPEED_MARK_CLASS} { flex: 0 0 auto; }
 .${HINT_CLASS} { padding: 8px; color: var(--dsw-alias-label-tertiary); font-size: 12px; line-height: 18px; }
 `

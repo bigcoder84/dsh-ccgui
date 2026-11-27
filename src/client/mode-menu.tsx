@@ -4,7 +4,8 @@
  * The CLI's own modes, beside the model control. The list is whatever that CLI reported,
  * in its own ids and names; picking one sends that id straight back. Nothing here decides
  * what a mode means, or relates it to the harness's presets: a CLI that reports no modes
- * gets no control at all.
+ * gets no control at all. The CLI's fast mode comes in the same answer, so its toggle is
+ * rendered here too, and only for a CLI that reports one.
  * @module dsh-ccgui/client/mode-menu
  */
 
@@ -19,6 +20,7 @@ import {
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ModeApi, ModeReply, NativeModes } from './mode-api.ts'
 import { CHEVRON_CLASS, LABEL_CLASS, MODE_CLASS, TRIGGER_CLASS } from './model-menu-styles.ts'
+import { SpeedToggle } from './speed-toggle.tsx'
 
 const UNKNOWN_ERROR_LABEL = '未知错误'
 /** A pick made before the CLI started only takes effect with the next message. */
@@ -37,6 +39,10 @@ export interface ModeMenuProps {
   readonly locked: boolean
   /** False before the session's first message, when there is no CLI process to change. */
   readonly started: boolean
+  /** True while a turn is under way; its end is when the CLI may report something new. */
+  readonly running?: boolean
+  /** The model the session has selected; before the CLI starts, it decides the fast mode shown. */
+  readonly model?: string
 }
 
 interface Failure {
@@ -57,15 +63,18 @@ const textOf = (reason: unknown): string => (reason instanceof Error ? reason.me
 
 /**
  * Read the modes for this session's CLI, and again whenever asked: a name read once would
- * go stale as soon as the CLI changed its own mode. A pick the CLI has not taken yet only
- * moves once a message runs, and nothing tells this control when that happened, so it keeps
- * asking for a while instead of leaving a stale hint in place.
+ * go stale as soon as the CLI changed its own mode, or a turn moved it to a model without a
+ * fast mode.
  * @param api - the mode route, absent when the harness offers none.
  * @param provider - the CLI route the session is on.
- * @param started - whether the session has a CLI process that could take the pick.
+ * @param session - whether it started, whether a turn is under way, and its selected model.
  * @returns the last answer, a way to ask again and a way to take in a newer answer.
  */
-function useModeReading(api: ModeApi | undefined, provider: string | undefined, started: boolean): Reading {
+function useModeReading(
+  api: ModeApi | undefined,
+  provider: string | undefined,
+  { started, running = false, model }: Pick<ModeMenuProps, 'started' | 'running' | 'model'>,
+): Reading {
   const [reply, setReply] = useState<ModeReply | undefined>()
   useEffect(() => {
     if (api === undefined || provider === undefined) {
@@ -84,14 +93,32 @@ function useModeReading(api: ModeApi | undefined, provider: string | undefined, 
     return () => {
       current = false
     }
-  }, [api, provider])
+    // The model is not read here, but a new one can change what the route answers.
+  }, [api, provider, model])
   const refresh = useCallback(() => {
     if (api === undefined || provider === undefined) return
     api.read(provider).then(setReply, () => {
       /* keep the last answer; the menu is still usable */
     })
   }, [api, provider])
-  const pending = reply?.pending
+  useRefreshAfterTurn(running, refresh)
+  usePollWhilePending(reply, started, refresh)
+  return { reply, refresh, accept: setReply }
+}
+
+/**
+ * A pick the CLI has not taken yet only moves once a message runs, and nothing tells this
+ * control when that happened, so it keeps asking for a while instead of leaving a stale hint.
+ * @param reply - the last answer.
+ * @param started - whether the session has a CLI process that could take the pick.
+ * @param refresh - asks the route again.
+ */
+function usePollWhilePending(reply: ModeReply | undefined, started: boolean, refresh: () => void): void {
+  // A new pick of either setting starts the budget over.
+  const pending =
+    reply?.pending === undefined && reply?.speedPending === undefined
+      ? undefined
+      : `${reply.pending ?? ''}\u0000${reply.speedPending ?? ''}`
   useEffect(() => {
     if (pending === undefined || !started) return undefined
     let tries = 0
@@ -107,7 +134,20 @@ function useModeReading(api: ModeApi | undefined, provider: string | undefined, 
       clearInterval(timer)
     }
   }, [pending, started, refresh])
-  return { reply, refresh, accept: setReply }
+}
+
+/**
+ * Ask again when a turn ends: it may have moved the CLI to another mode, or to a model with
+ * no fast mode, and nothing else tells the controls.
+ * @param running - whether a turn is under way.
+ * @param refresh - asks the route again.
+ */
+function useRefreshAfterTurn(running: boolean, refresh: () => void): void {
+  const wasRunning = useRef(running)
+  useEffect(() => {
+    if (wasRunning.current && !running) refresh()
+    wasRunning.current = running
+  }, [running, refresh])
 }
 
 interface ChooseProps {
@@ -297,24 +337,40 @@ function ModeControl({ api, provider, reply, modes, locked, refresh, accept }: C
 }
 
 /**
- * Render the mode button and its menu, or nothing when the CLI reports no modes.
+ * Render the mode button and its menu, and the fast-mode toggle, each only when the CLI
+ * reports it; nothing at all for a CLI that reports neither.
  * @param props - the CLI route, the mode API, whether the session is gone and whether it started.
- * @returns the control.
+ * @returns the controls.
  */
-export function ModeMenu({ provider, api, locked, started }: ModeMenuProps): ReactElement | null {
-  const { reply, refresh, accept } = useModeReading(api, provider, started)
-  if (api === undefined || provider === undefined || reply?.modes === undefined) return null
-  const { modes } = reply
-  if (modes.options.length === 0) return null
+export function ModeMenu({ provider, api, locked, ...session }: ModeMenuProps): ReactElement | null {
+  const { reply, refresh, accept } = useModeReading(api, provider, session)
+  if (api === undefined || provider === undefined || reply === undefined) return null
+  const modes = reply.modes?.options.length === 0 ? undefined : reply.modes
+  const { speed } = reply
+  if (modes === undefined && speed === undefined) return null
   return (
-    <ModeControl
-      api={api}
-      provider={provider}
-      reply={reply}
-      modes={modes}
-      locked={locked}
-      refresh={refresh}
-      accept={accept}
-    />
+    <>
+      {modes !== undefined && (
+        <ModeControl
+          api={api}
+          provider={provider}
+          reply={reply}
+          modes={modes}
+          locked={locked}
+          refresh={refresh}
+          accept={accept}
+        />
+      )}
+      {speed !== undefined && (
+        <SpeedToggle
+          api={api}
+          provider={provider}
+          speed={speed}
+          pending={reply.speedPending}
+          locked={locked}
+          accept={accept}
+        />
+      )}
+    </>
   )
 }

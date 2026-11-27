@@ -57,3 +57,10 @@ export const GIT_ROUTE_PREFIX = '/dsh-ccgui/git'
  * and sends the chosen id back to that CLI, unchanged.
  */
 export const MODE_ROUTE_PREFIX = '/dsh-ccgui/modes'
+
+/**
+ * Codex's fast mode, as codex-acp reports it: a select whose values are these two. The
+ * composer shows it as one toggle, so both ends of it must be known by value.
+ */
+export const FAST_MODE_ON = 'on'
+export const FAST_MODE_OFF = 'off'

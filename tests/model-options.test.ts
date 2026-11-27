@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { SessionConfigOption } from '@agentclientprotocol/sdk'
-import { readEffortList, readModeList, readModelList } from '../src/model-options.ts'
+import { readEffortList, readModeList, readModelList, readSpeedList } from '../src/model-options.ts'
 
 const select = (fields: object): SessionConfigOption => ({
   id: 'model',
@@ -343,5 +343,81 @@ describe('readModeList', () => {
   it('ignores a mode option with no usable id or current value', () => {
     expect(readModeList([select({ category: 'mode', id: 5 })])).toBeUndefined()
     expect(readModeList([select({ category: 'mode', currentValue: '' })])).toBeUndefined()
+  })
+})
+
+/** Codex's fast tier, exactly as codex-acp 2.5.0 reports it to a client without boolean options. */
+const codexFast = (fields: object = {}): SessionConfigOption => ({
+  id: 'fast-mode',
+  name: 'Fast mode',
+  description: '1.5x speed, increased usage',
+  category: 'model_config',
+  type: 'select',
+  currentValue: 'off',
+  options: [
+    { value: 'off', name: 'Off', description: 'Default speed, normal usage' },
+    { value: 'on', name: 'On', description: '1.5x speed, increased usage' },
+  ],
+  ...fields,
+})
+
+describe('readSpeedList', () => {
+  it("reads Codex's fast mode", () => {
+    expect(readSpeedList([select({ category: 'model' }), codexFast({ currentValue: 'on' })])).toEqual({
+      configId: 'fast-mode',
+      current: 'on',
+      options: [
+        { value: 'off', name: 'Off' },
+        { value: 'on', name: 'On' },
+      ],
+    })
+  })
+
+  // codex-acp leaves the option out while the active model has no fast tier.
+  it('returns undefined when the CLI reports no fast mode', () => {
+    expect(readSpeedList([select({ category: 'model' })])).toBeUndefined()
+    expect(readSpeedList(undefined)).toBeUndefined()
+  })
+
+  // The toggle sends `on` and `off`; an option without both could not be switched both ways.
+  it('ignores a fast mode that does not offer both on and off', () => {
+    expect(readSpeedList([codexFast({ options: [{ value: 'on', name: 'On' }] })])).toBeUndefined()
+    expect(
+      readSpeedList([
+        codexFast({
+          options: [
+            { value: 'normal', name: 'Normal' },
+            { value: 'turbo', name: 'Turbo' },
+          ],
+        }),
+      ]),
+    ).toBeUndefined()
+  })
+
+  // The category is codex-acp's own and not specific to speed, so it alone proves nothing.
+  it('does not take another setting in the same category for it', () => {
+    expect(readSpeedList([codexFast({ id: 'verbosity' })])).toBeUndefined()
+  })
+
+  // The plugin does not announce boolean options, so a boolean here is not one it can send.
+  it('ignores a boolean fast mode', () => {
+    expect(readSpeedList([codexFast({ type: 'boolean', currentValue: true, options: undefined })])).toBeUndefined()
+  })
+})
+
+describe('readModelList with a speed option', () => {
+  it('carries the speed beside the models', () => {
+    expect(readModelList([select({ category: 'model' }), codexFast()])?.speed).toEqual({
+      configId: 'fast-mode',
+      current: 'off',
+      options: [
+        { value: 'off', name: 'Off' },
+        { value: 'on', name: 'On' },
+      ],
+    })
+  })
+
+  it('has no speed when the CLI reports none', () => {
+    expect(readModelList([select({ category: 'model' })])).not.toHaveProperty('speed')
   })
 })

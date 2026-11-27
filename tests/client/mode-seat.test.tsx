@@ -6,7 +6,7 @@
  * harness runs it shows nothing, so the harness's access control keeps that seat.
  */
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { act, cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { DirectoryState } from '../../src/client/choices.ts'
 import type { ModeApi, ModeReply } from '../../src/client/mode-api.ts'
@@ -85,5 +85,59 @@ describe('CliModeSeat', () => {
     // The seat is claimed, but there is no control to put in it.
     expect(container.querySelector('.dsh-cli-mode-seat')).not.toBeNull()
     expect(screen.queryByRole('button')).toBeNull()
+  })
+
+  // The session store is the harness's own snapshot, whose running flag marks a turn under way.
+  it('reads the modes again once the session finishes a turn', async () => {
+    const modes = api()
+    let snapshot = { blank: false, running: true }
+    let notify = (): void => undefined
+    const session = {
+      subscribe: (listener: () => void) => {
+        notify = listener
+        return () => undefined
+      },
+      getSnapshot: () => snapshot,
+    }
+    render(<CliModeSeat directory={storeOf(CLI_DIRECTORY)} modes={modes} session={session} />)
+    await screen.findByRole('button', { name: /CLI 模式/ })
+    expect(modes.read).toHaveBeenCalledTimes(1)
+    snapshot = { blank: false, running: false }
+    act(() => {
+      notify()
+    })
+    await vi.waitFor(() => {
+      expect(modes.read).toHaveBeenCalledTimes(2)
+    })
+  })
+
+  it('reads again when the session picks another model', async () => {
+    const modes = api()
+    const group = {
+      id: 'cli-fake',
+      name: 'Fake CLI',
+      models: [
+        { id: 'default', name: 'Fake' },
+        { id: 'large', name: 'Large' },
+      ],
+    }
+    let state: DirectoryState = { groups: [group], current: { provider: 'cli-fake', model: 'default' } }
+    let notify = (): void => undefined
+    const directory: Store<DirectoryState> = {
+      subscribe: (listener) => {
+        notify = listener
+        return () => undefined
+      },
+      getSnapshot: () => state,
+    }
+    render(<CliModeSeat directory={directory} modes={modes} session={undefined} />)
+    await screen.findByRole('button', { name: /CLI 模式/ })
+    state = { ...state, current: { provider: 'cli-fake', model: 'large' } }
+    act(() => {
+      notify()
+    })
+    await vi.waitFor(() => {
+      expect(modes.read).toHaveBeenCalledTimes(2)
+    })
   })
 })

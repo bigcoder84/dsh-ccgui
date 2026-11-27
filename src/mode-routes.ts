@@ -1,7 +1,8 @@
 /**
  * The composer's mode route, under `/dsh-ccgui/modes`. A CLI's modes belong to the CLI:
  * the route only lists what that CLI reported and sends the chosen id back unchanged, so
- * no CLI mode is ever turned into a harness preset. Like the git routes, the harness's web
+ * no CLI mode is ever turned into a harness preset. The CLI's fast mode travels the same
+ * way, beside the modes, since the composer shows both from one answer. Like the git routes, the harness's web
  * server leaves authentication to each route, so every request first asks `connection` for
  * a rejection.
  * @module dsh-ccgui/mode-routes
@@ -10,7 +11,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { LlmError } from '@deepseek-ai/dsh-llm'
 import { MODE_ROUTE_PREFIX } from './constants.ts'
-import type { CliModeList } from './model-options.ts'
+import type { CliModeList, CliSpeedList } from './model-options.ts'
 
 /** The parts of the harness's `webServer` service this module uses. */
 export interface ModeWebServer {
@@ -26,16 +27,28 @@ export interface ModeConnection {
   requestRejection(request: { readonly headers: IncomingMessage['headers'] }): 401 | 403 | undefined
 }
 
-/** What the route reads from the bridge. */
-export interface ModeRoutes {
-  /** The modes known for a session's route, and a pick the CLI has not confirmed. */
-  modeState(sessionId: string, provider: string): { readonly modes?: CliModeList; readonly pending?: string }
-  /** Ask that CLI to switch, by the id it reported. */
-  switchMode(sessionId: string, provider: string, mode: string): Promise<CliModeList | undefined>
+/** What is known for a session's route, and the picks the CLI has not confirmed. */
+export interface ModeRouteState {
+  readonly modes?: CliModeList
+  readonly pending?: string
+  readonly speed?: CliSpeedList
+  readonly speedPending?: string
 }
 
-/** A body is two ids and an optional mode; anything larger is not a request this route takes. */
+/** What the route reads from the bridge. */
+export interface ModeRoutes {
+  /** The modes and the fast mode known for a session's route. */
+  modeState(sessionId: string, provider: string): ModeRouteState
+  /** Ask that CLI to switch, by the id it reported. */
+  switchMode(sessionId: string, provider: string, mode: string): Promise<CliModeList | undefined>
+  /** Ask that CLI to turn its fast mode on or off, by the value it reported. */
+  switchSpeed(sessionId: string, provider: string, value: string): Promise<CliSpeedList | undefined>
+}
+
+/** A body is two ids, a mode and a speed; anything larger is not a request this route takes. */
 const MAX_BODY_BYTES = 8 * 1024
+const MODE_FAILED = '切换模式失败，请查看日志'
+const SPEED_FAILED = '切换快速模式失败，请查看日志'
 
 class BodyTooLarge extends Error {
   override name = 'BodyTooLarge'
@@ -46,6 +59,8 @@ interface RequestFields {
   readonly provider: string
   /** Absent when the caller only reads. */
   readonly mode: string | undefined
+  /** Absent unless the caller switches the fast mode. */
+  readonly speed: string | undefined
 }
 
 const isText = (value: unknown): value is string => typeof value === 'string' && value.length > 0
@@ -72,7 +87,14 @@ async function readJson(req: IncomingMessage): Promise<unknown> {
 function fieldsOf(body: unknown): RequestFields | undefined {
   if (!isObject(body) || !isText(body.sessionId) || !isText(body.provider)) return undefined
   if (body.mode !== undefined && !isText(body.mode)) return undefined
-  return { sessionId: body.sessionId, provider: body.provider, mode: body.mode }
+  if (body.speed !== undefined && !isText(body.speed)) return undefined
+  return { sessionId: body.sessionId, provider: body.provider, mode: body.mode, speed: body.speed }
+}
+
+/** The mode goes first, like at the start of a turn. */
+async function sendPicks(routes: ModeRoutes, { sessionId, provider, mode, speed }: RequestFields): Promise<void> {
+  if (mode !== undefined) await routes.switchMode(sessionId, provider, mode)
+  if (speed !== undefined) await routes.switchSpeed(sessionId, provider, speed)
 }
 
 function messageOf(error: unknown): string {
@@ -114,15 +136,22 @@ export function modeHandler(
       return
     }
     try {
-      // Sending a mode and reading the state are one operation: the answer is what that
+      // Sending a pick and reading the state are one operation: the answer is what that
       // CLI reports after the change, in the same ids and names it gave.
-      if (fields.mode !== undefined) await routes.switchMode(fields.sessionId, fields.provider, fields.mode)
-      const { modes, pending } = routes.modeState(fields.sessionId, fields.provider)
-      sendJson(res, 200, { success: true, data: { modes: modes ?? null, pending: pending ?? null } })
+      await sendPicks(routes, fields)
+      const { modes, pending, speed, speedPending } = routes.modeState(fields.sessionId, fields.provider)
+      const data = {
+        modes: modes ?? null,
+        pending: pending ?? null,
+        speed: speed ?? null,
+        speedPending: speedPending ?? null,
+      }
+      sendJson(res, 200, { success: true, data })
     } catch (error: unknown) {
       const known = error instanceof LlmError
       if (!known) warn(`ccgui: mode request failed: ${messageOf(error)}`)
-      sendJson(res, known ? 400 : 500, { success: false, error: known ? messageOf(error) : '切换模式失败，请查看日志' })
+      const failed = fields.mode === undefined && fields.speed !== undefined ? SPEED_FAILED : MODE_FAILED
+      sendJson(res, known ? 400 : 500, { success: false, error: known ? messageOf(error) : failed })
     }
   }
 }

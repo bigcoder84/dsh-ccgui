@@ -1,12 +1,12 @@
 /**
- * Reads a CLI's model list, its reasoning levels, and the native modes it reports, out of
- * the configuration options ACP sends. Every option id and name stays exactly as the CLI
- * gave it; nothing here maps a CLI concept onto a harness one.
+ * Reads a CLI's model list, its reasoning levels, the native modes it reports and its speed,
+ * out of the configuration options ACP sends. Every option id and name stays exactly as the
+ * CLI gave it; nothing here maps a CLI concept onto a harness one.
  * @module dsh-ccgui/model-options
  */
 
 import type { SessionConfigOption } from '@agentclientprotocol/sdk'
-import { compactDescription, DEFAULT_MODEL_ID } from './constants.ts'
+import { compactDescription, DEFAULT_MODEL_ID, FAST_MODE_OFF, FAST_MODE_ON } from './constants.ts'
 
 /** One model a CLI offers. */
 export interface CliModelOption {
@@ -24,16 +24,25 @@ export interface CliEffortList {
   readonly options: readonly CliModelOption[]
 }
 
-/**
- * A CLI's own modes, exactly as it reports them. The set belongs to the CLI, not to the
- * harness: each route keeps its own list and its own current value.
- */
-export interface CliModeList {
-  /** Option id to send when changing the mode; ACP does not fix this name. */
+/** A CLI setting picked from a list, exactly as the CLI reports it. */
+export interface CliChoiceList {
+  /** Option id to send when changing it; ACP does not fix this name. */
   readonly configId: string
   readonly current: string
   readonly options: readonly CliModelOption[]
 }
+
+/**
+ * A CLI's own modes, exactly as it reports them. The set belongs to the CLI, not to the
+ * harness: each route keeps its own list and its own current value.
+ */
+export type CliModeList = CliChoiceList
+
+/**
+ * A CLI's fast mode, `on` or `off`. It belongs to the active model: Codex reports it only
+ * while that model has a fast tier.
+ */
+export type CliSpeedList = CliChoiceList
 
 /** The models a CLI offers and which one is active. */
 export interface CliModelList {
@@ -43,6 +52,8 @@ export interface CliModelList {
   readonly options: readonly CliModelOption[]
   /** The CLI's native modes, in the CLI's own ids and names. Absent when it reports none. */
   readonly modes?: CliModeList
+  /** The active model's fast mode. Absent when it has none. */
+  readonly speed?: CliSpeedList
   /**
    * Reasoning levels by model id, for the models seen so far: `null` for a model seen to
    * offer none. Absent when no model has been seen with levels.
@@ -59,6 +70,11 @@ const CONVENTIONAL_MODEL_OPTION_ID = 'model'
 const MODEL_CATEGORY = 'model'
 const MODE_CATEGORY = 'mode'
 const EFFORT_CATEGORY = 'thought_level'
+/**
+ * codex-acp's id for its fast mode. ACP has no category for speed, and the one codex-acp
+ * files it under, `model_config`, is not specific to it, so the id is what identifies it.
+ */
+const SPEED_OPTION_ID = 'fast-mode'
 /** Joins a model name and the detail that distinguishes it. */
 const NAME_SEPARATOR = ' · '
 
@@ -126,6 +142,13 @@ function uniqueOptions(options: readonly CliModelOption[]): readonly CliModelOpt
   return options.filter(({ value }, index) => options.findIndex((option) => option.value === value) === index)
 }
 
+/** A select's id, current value and entries, each checked, as the SDK does not validate them. */
+function readChoice(option: Record<string, unknown> | undefined): CliChoiceList | undefined {
+  if (option === undefined || !isText(option.id) || !isText(option.currentValue)) return undefined
+  const options = uniqueOptions(flattenEntries(option.options).flatMap(readLevel))
+  return options.length === 0 ? undefined : { configId: option.id, current: option.currentValue, options }
+}
+
 /**
  * Find the reasoning level option. Only ACP's category identifies it: the ids differ
  * between CLIs (`effort`, `thinking`, `reasoning_effort`), and an id alone could be
@@ -134,10 +157,7 @@ function uniqueOptions(options: readonly CliModelOption[]): readonly CliModelOpt
  * @returns the levels, or undefined when the active model offers none.
  */
 export function readEffortList(configOptions: ConfigOptions): CliEffortList | undefined {
-  const option = selectsOf(configOptions).find((candidate) => candidate.category === EFFORT_CATEGORY)
-  if (option === undefined || !isText(option.id) || !isText(option.currentValue)) return undefined
-  const options = uniqueOptions(flattenEntries(option.options).flatMap(readLevel))
-  return options.length === 0 ? undefined : { configId: option.id, current: option.currentValue, options }
+  return readChoice(selectsOf(configOptions).find((candidate) => candidate.category === EFFORT_CATEGORY))
 }
 
 /**
@@ -148,10 +168,19 @@ export function readEffortList(configOptions: ConfigOptions): CliEffortList | un
  * @returns its modes, or undefined when it reports none.
  */
 export function readModeList(configOptions: ConfigOptions): CliModeList | undefined {
-  const option = selectsOf(configOptions).find((candidate) => candidate.category === MODE_CATEGORY)
-  if (option === undefined || !isText(option.id) || !isText(option.currentValue)) return undefined
-  const options = uniqueOptions(flattenEntries(option.options).flatMap(readLevel))
-  return options.length === 0 ? undefined : { configId: option.id, current: option.currentValue, options }
+  return readChoice(selectsOf(configOptions).find((candidate) => candidate.category === MODE_CATEGORY))
+}
+
+/**
+ * Find the CLI's fast mode. Only a select is read, since the plugin does not announce
+ * boolean options, and only one offering both `on` and `off`, the two values the toggle sends.
+ * @param configOptions - the options a CLI reported, if any.
+ * @returns the fast mode, or undefined when the active model has none.
+ */
+export function readSpeedList(configOptions: ConfigOptions): CliSpeedList | undefined {
+  const speed = readChoice(selectsOf(configOptions).find((candidate) => candidate.id === SPEED_OPTION_ID))
+  const offers = (value: string): boolean => speed?.options.some((option) => option.value === value) ?? false
+  return offers(FAST_MODE_ON) && offers(FAST_MODE_OFF) ? speed : undefined
 }
 
 /**
@@ -160,8 +189,8 @@ export function readModeList(configOptions: ConfigOptions): CliModeList | undefi
  * so everything here is checked: an empty name or id in the catalog would make the
  * harness drop the whole CLI from its menus.
  * @param configOptions - the options a CLI reported, if any.
- * @returns the model list, with the CLI's native modes and the active model's reasoning
- * levels when it has any, or undefined when the CLI offers no selectable models.
+ * @returns the model list, with the CLI's native modes, the active model's reasoning levels
+ * and its fast mode when it has any, or undefined when the CLI offers no selectable models.
  */
 export function readModelList(configOptions: ConfigOptions): CliModelList | undefined {
   const selects = selectsOf(configOptions)
@@ -173,11 +202,13 @@ export function readModelList(configOptions: ConfigOptions): CliModelList | unde
   if (options.length === 0) return undefined
   const effort = readEffortList(configOptions)
   const modes = readModeList(configOptions)
+  const speed = readSpeedList(configOptions)
   const list: CliModelList = {
     configId: option.id,
     current: option.currentValue,
     options,
     ...(modes === undefined ? {} : { modes }),
+    ...(speed === undefined ? {} : { speed }),
     ...(effort === undefined ? {} : { efforts: { [option.currentValue]: effort } }),
   }
   return list

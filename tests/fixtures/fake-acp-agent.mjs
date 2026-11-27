@@ -7,6 +7,7 @@
 //   HANG           run until session/cancel
 //   CRASH          exit with code 3
 //   WHICH MODEL    report the selected model
+//   WHICH SPEED    report whether fast mode is on, as the turn would run
 //   anything else  echo the prompt
 // Every turn reports the same token usage, as real CLIs do; the plugin does not forward it.
 import { writeFileSync } from 'node:fs'
@@ -20,6 +21,10 @@ const capabilities = {
 const sessions = new Map()
 let currentModel = 'fake-small'
 let currentMode = 'default'
+// Like codex-acp: the option exists only while the model has a fast tier, and a turn on a
+// model without one runs at normal speed whatever was picked.
+const FAST_MODELS = new Set(['fake-small'])
+let fastMode = 'off'
 const TURN_USAGE = { totalTokens: 1200, inputTokens: 150, outputTokens: 50, cachedReadTokens: 1000 }
 const configOptions = () => [
   {
@@ -44,6 +49,22 @@ const configOptions = () => [
       { value: 'plan', name: 'Plan' },
     ],
   },
+  ...(FAST_MODELS.has(currentModel)
+    ? [
+        {
+          id: 'fast-mode',
+          name: 'Fast mode',
+          description: '1.5x speed, increased usage',
+          category: 'model_config',
+          type: 'select',
+          currentValue: fastMode,
+          options: [
+            { value: 'off', name: 'Off' },
+            { value: 'on', name: 'On' },
+          ],
+        },
+      ]
+    : []),
 ]
 const waiting = new Map()
 let nextRequestId = 1000
@@ -174,6 +195,10 @@ const QUOTA_MESSAGE =
   '当前您在Hy4模型的免费使用量已超出频率限制，可在2026-11-12 12:21:09重置后使用。您可消耗积分继续使用该模型或切换至其他模型。'
 
 function runPrompt(sessionId, text) {
+  if (text.trim() === 'WHICH SPEED') {
+    say(sessionId, `fast=${FAST_MODELS.has(currentModel) ? fastMode : 'off'}`)
+    return 'end_turn'
+  }
   if (text.trim() === 'WHICH MODEL') {
     say(sessionId, `model=${currentModel}`)
     return 'end_turn'
@@ -230,6 +255,7 @@ async function handleRequest({ id, method, params }) {
     case 'session/set_config_option':
       if (params.configId === 'model') currentModel = params.value
       if (params.configId === 'mode') currentMode = params.value
+      if (params.configId === 'fast-mode') fastMode = params.value
       return respond(id, { configOptions: configOptions() })
     case 'session/delete':
     case 'session/close':

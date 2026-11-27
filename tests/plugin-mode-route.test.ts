@@ -5,7 +5,18 @@ import { join } from 'node:path'
 import { Readable } from 'node:stream'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { WAIT, addAgent, harness, load, start, stopStarted } from './fixtures/plugin-harness.ts'
+import { collect, textOf, user } from './fixtures/cli-session-helpers.ts'
+import {
+  WAIT,
+  addAgent,
+  harness,
+  load,
+  onlyAdapter,
+  openTurn,
+  request,
+  start,
+  stopStarted,
+} from './fixtures/plugin-harness.ts'
 import type { Harness } from './fixtures/plugin-harness.ts'
 
 // The fallback probe directory lives under the user's home; point it at a scratch
@@ -79,7 +90,7 @@ describe('CliBridge mode route', () => {
 
     await expect(post(modes, { sessionId: 'dsh-1', provider: 'cli-fake' })).resolves.toEqual({
       success: true,
-      data: { modes: null, pending: null },
+      data: { modes: null, pending: null, speed: null, speedPending: null },
     })
     await expect(post(modes, { sessionId: 'dsh-1', provider: 'cli-fake', mode: 'plan' })).resolves.toMatchObject({
       success: false,
@@ -109,6 +120,33 @@ describe('CliBridge mode route', () => {
     // The refused id did not replace the pick that is waiting.
     await expect(post(modes, { sessionId: 'dsh-1', provider: 'cli-fake' })).resolves.toMatchObject({
       data: { pending: 'plan' },
+    })
+  })
+
+  // The probe saw the fake CLI's fast mode, so the toggle has something to show before the CLI
+  // starts; the pick then travels with the session into the CLI's first turn.
+  it('holds a fast-mode pick until the CLI starts, then runs the first message with it', async () => {
+    const h = harness()
+    await start(h)
+    const { agent } = addAgent(h, { preset: 'cli-fake' })
+    await h.root.serial('agent/created', { agent, source: 'startup' })
+    await vi.waitFor(() => expect(h.modelUpdates).toEqual(['cli-fake']), WAIT)
+    const modes = await modeRoute(h)
+
+    await expect(post(modes, { sessionId: 'dsh-1', provider: 'cli-fake', speed: 'turbo' })).resolves.toMatchObject({
+      success: false,
+      error: expect.stringContaining('turbo') as unknown,
+    })
+    await expect(post(modes, { sessionId: 'dsh-1', provider: 'cli-fake', speed: 'on' })).resolves.toMatchObject({
+      success: true,
+      data: { speed: { configId: 'fast-mode', current: 'off' }, speedPending: 'on' },
+    })
+
+    openTurn(h, 'dsh-1', ['m1'])
+    const chunks = await collect(onlyAdapter(h).stream(request({ messages: [user('m1', 'WHICH SPEED')] })))
+    expect(textOf(chunks)).toBe('fast=on')
+    await expect(post(modes, { sessionId: 'dsh-1', provider: 'cli-fake' })).resolves.toMatchObject({
+      data: { speed: { current: 'on' }, speedPending: null },
     })
   })
 })

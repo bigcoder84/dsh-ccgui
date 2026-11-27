@@ -16,7 +16,7 @@ import type { ModeApi } from './mode-api.ts'
 import { ModeMenu } from './mode-menu.tsx'
 import { MODE_SEAT_CLASS } from './model-menu-styles.ts'
 import type { SessionFacts } from './session-facts.ts'
-import { useRemoved, useStarted } from './session-facts.ts'
+import { useRemoved, useRunning, useStarted } from './session-facts.ts'
 import type { Store } from './store.ts'
 import { useStore } from './store.ts'
 
@@ -38,11 +38,19 @@ export function CliModeSeat({ directory, modes, session }: ModeSeatInjected): Re
   const state = useStore(directory)
   const locked = useRemoved(session)
   const started = useStarted(session)
+  const running = useRunning(session)
   const provider = menuModels(state).current?.provider
   if (!isCliRoute(provider)) return null
   return (
     <span className={MODE_SEAT_CLASS}>
-      <ModeMenu provider={provider} api={modes} locked={locked} started={started} />
+      <ModeMenu
+        provider={provider}
+        api={modes}
+        locked={locked}
+        started={started}
+        running={running}
+        model={state.current?.model}
+      />
     </span>
   )
 }

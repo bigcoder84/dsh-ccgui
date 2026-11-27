@@ -176,3 +176,27 @@ describe('native modes in the model cache', () => {
     expect(parseModelCache(text).get('cli-x')).toEqual(LIST)
   })
 })
+
+// Read back, the fast mode is what lets the composer show its toggle before the CLI starts.
+describe('fast mode in the model cache', () => {
+  const FAST = {
+    configId: 'fast-mode',
+    current: 'off',
+    options: [
+      { value: 'off', name: 'Off' },
+      { value: 'on', name: 'On' },
+    ],
+  }
+
+  it('keeps the fast mode through a save and read back', async () => {
+    const path = scratch()
+    const list = { ...LIST, speed: FAST }
+    await new ModelCacheFile(path).save(new Map([['cli-x', list]]))
+    await expect(new ModelCacheFile(path).read()).resolves.toEqual(new Map([['cli-x', list]]))
+  })
+
+  it('drops a malformed fast mode but keeps the model list', () => {
+    const text = JSON.stringify({ version: 1, lists: { 'cli-x': { ...LIST, speed: { configId: 'fast-mode' } } } })
+    expect(parseModelCache(text).get('cli-x')).toEqual(LIST)
+  })
+})

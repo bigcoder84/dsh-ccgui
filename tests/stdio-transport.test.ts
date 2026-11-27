@@ -108,9 +108,11 @@ describe('openStdioTransport', () => {
     const { transport, updates, cwd } = open()
     await transport.initialize()
     const { sessionId, configOptions } = await transport.newSession(cwd)
-    expect(configOptions?.map((option) => option.id)).toEqual(['model', 'mode'])
+    expect(configOptions?.map((option) => option.id)).toEqual(['model', 'mode', 'fast-mode'])
     const after = await transport.setConfigOption(sessionId, 'model', 'fake-large')
     expect(after?.[0]).toMatchObject({ currentValue: 'fake-large' })
+    // Like codex-acp, the fake offers fast mode only on a model with a fast tier.
+    expect(after?.map((option) => option.id)).toEqual(['model', 'mode'])
     await transport.prompt(sessionId, text('WHICH MODEL'))
     expect(updates.at(-1)).toMatchObject({ content: { text: 'model=fake-large' } })
     await transport.dispose()

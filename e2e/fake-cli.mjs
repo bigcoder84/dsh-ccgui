@@ -34,6 +34,9 @@ const harnessSeatDisplays = () =>
     .evaluateAll((nodes) => nodes.map((node) => getComputedStyle(node).display))
 // The composer's own control for the CLI's native modes, beside the model and its level.
 const modeTrigger = () => page.getByRole('button', { name: /^CLI 模式，当前/ })
+// Codex's fast mode, which the fake CLI offers on its default model only.
+const speedToggle = () => page.getByRole('button', { name: /^快速模式，/ })
+const speedPressed = async () => (await speedToggle().getAttribute('aria-pressed')) === 'true'
 
 /** Switch the harness's access mode, confirming 完全权限's own risk dialog. */
 async function setAccessMode(name) {
@@ -421,6 +424,35 @@ await scenario('mode switch mid-session: the live CLI changes before the next pr
   if (title === null || title.includes('下一条消息发送时生效')) throw new Error('a running CLI should apply at once')
   await send('WHICH MODE')
   await untilText('mode=default')
+})
+
+// The toggle sends the CLI's own on/off; picked before the CLI runs, it waits for the first turn.
+await scenario('fast mode: a pick made before the CLI runs reaches its first turn', async () => {
+  await newCliSession(FAKE)
+  await until(async () => (await speedToggle().count()) > 0, 'the fast-mode toggle', 30_000)
+  if (await speedPressed()) throw new Error('fast mode should start off')
+  await speedToggle().click()
+  await until(speedPressed, 'the toggle to show the pick')
+  const pending = await speedToggle().getAttribute('title')
+  if (pending === null || !pending.includes('下一条消息发送时生效')) throw new Error(`pending hint: ${pending}`)
+  await shot('fast-mode-pending')
+  await send('WHICH SPEED')
+  await untilText('fast=on')
+  await idle('WHICH SPEED')
+  await until(async () => {
+    const title = await speedToggle().getAttribute('title')
+    return title !== null && !title.includes('下一条消息发送时生效')
+  }, 'the pick to be confirmed')
+})
+
+// Fast mode belongs to the model: once a turn has moved the CLI to one without a fast tier,
+// the toggle goes, and the turn ran at normal speed.
+await scenario('fast mode: a model without a fast tier takes the toggle away', async () => {
+  await chooseModel(FAKE, 'Fake Large')
+  await send('WHICH SPEED')
+  await untilText('fast=off')
+  await idle('WHICH SPEED', 2)
+  await until(async () => (await speedToggle().count()) === 0, 'the toggle to go')
 })
 
 // A PTC session runs the CLI through run_code; nothing refuses a CLI outright any more.

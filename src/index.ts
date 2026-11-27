@@ -25,7 +25,8 @@ import { createCliTool } from './cli-tool.ts'
 import { CLI_TOOL_NAME, cliRoute, isCliRoute } from './constants.ts'
 import { ModelCacheFile } from './model-cache.ts'
 import { CliModelCatalog } from './model-catalog.ts'
-import type { CliModeList, CliModelList } from './model-options.ts'
+import type { CliModelList } from './model-options.ts'
+import { modeRoutes } from './mode-bridge.ts'
 import { registerModeRoute } from './mode-routes.ts'
 import type { ImageRef } from './prompt-images.ts'
 import { probeModels } from './model-probe.ts'
@@ -205,42 +206,13 @@ export default class CliBridge extends Service {
         () =>
           registerModeRoute(
             child.webServer,
-            {
-              modeState: (sessionId, provider) => this.modeState(sessionId, provider),
-              switchMode: (sessionId, provider, mode) => this.switchMode(sessionId, provider, mode),
-            },
+            modeRoutes({ registry: this.registry, catalog: this.catalog }),
             child.connection,
             (message) => child.logger.warn(message),
           ),
         'ccgui: mode route',
       )
     })
-  }
-
-  /**
-   * The native modes to show for a session. A live CLI's own report wins; before it starts,
-   * the catalog's last answer for that route fills in.
-   */
-  private modeState(sessionId: string, provider: string): { modes?: CliModeList; pending?: string } {
-    const { modes, pending } = this.registry.modeStateFor(sessionId, provider)
-    const known = modes ?? this.catalog.modesFor(provider)
-    return { ...(known === undefined ? {} : { modes: known }), ...(pending === undefined ? {} : { pending }) }
-  }
-
-  /**
-   * Switch a session's CLI mode. A pick made before the CLI starts is only stored, so it is
-   * checked here against what that CLI reported; an id it never offered would otherwise wait
-   * for the first message and fail there.
-   */
-  private async switchMode(sessionId: string, provider: string, mode: string): Promise<CliModeList | undefined> {
-    if (this.registry.isCliRoute(provider)) {
-      const { modes } = this.modeState(sessionId, provider)
-      if (modes === undefined) throw new LlmError('还没有读到这个 CLI 的模式列表，请稍后再试。', 'CLI_MODE_FAILED')
-      if (!modes.options.some((option) => option.value === mode)) {
-        throw new LlmError(`这个 CLI 没有报告模式 ${mode}。`, 'CLI_MODE_FAILED')
-      }
-    }
-    return this.registry.switchMode(sessionId, provider, mode)
   }
 
   private registerRoutes(): void {
@@ -426,6 +398,8 @@ export default class CliBridge extends Service {
       knownModels: () => this.catalog.known(provider),
       ...(start.initialMode === undefined ? {} : { initialMode: start.initialMode }),
       ...(start.onModeRefused === undefined ? {} : { onModeRefused: start.onModeRefused }),
+      ...(start.initialSpeed === undefined ? {} : { initialSpeed: start.initialSpeed }),
+      ...(start.onSpeedRefused === undefined ? {} : { onSpeedRefused: start.onSpeedRefused }),
       onEfforts: (model, effort) => this.catalog.learnEfforts(provider, model, effort),
       onModes: (modes) => this.catalog.learnModes(provider, modes),
       readImage: (ref, signal) => this.readImage(ref, signal),

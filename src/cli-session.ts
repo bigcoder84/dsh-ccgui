@@ -19,7 +19,7 @@ import type { RequestMessage, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { abortable } from './abortable.ts'
 import { AsyncQueue } from './async-queue.ts'
 import { readEffortList, readModeList, readModelList } from './model-options.ts'
-import type { CliEffortList, CliModeList } from './model-options.ts'
+import type { CliEffortList, CliModeList, CliSpeedList } from './model-options.ts'
 import { nativeReplayState, readNativeSession, unseenUserInput } from './request-input.ts'
 import type { UserInput } from './request-input.ts'
 import { toPromptBlocks } from './prompt-images.ts'
@@ -27,9 +27,9 @@ import { openSession, withinStartTimeout } from './session/connect.ts'
 import { driveTool } from './session/drive-tool.ts'
 import type { AskPermission } from './session/drive-tool.ts'
 import { EffortState } from './session/effort-state.ts'
-import { ModeState } from './session/mode-state.ts'
 import { ModelState } from './session/model-state.ts'
-import type { ConfigOptions } from './session/model-state.ts'
+import type { ConfigOptions, ModelTarget } from './session/model-state.ts'
+import { NativeSettings } from './session/native-settings.ts'
 import { errorMessage } from './session/outcomes.ts'
 import type { ReplayFields } from './session/outcomes.ts'
 import { CANCELLED, PermissionQueue } from './session/permission-queue.ts'
@@ -59,7 +59,7 @@ export class CliSession {
   private readonly permissions = new PermissionQueue()
   private readonly model: ModelState
   private readonly effort: EffortState
-  private readonly mode: ModeState
+  private readonly settings: NativeSettings
   private readonly turns: TurnQueue
   private seen: ReadonlySet<string>
   private transport: AcpTransport | undefined
@@ -84,11 +84,7 @@ export class CliSession {
       this.noteOptions(reported, isNewSession),
     )
     this.effort = new EffortState((reported) => this.model.observe(reported))
-    this.mode = new ModeState(
-      () => options.knownModels?.()?.modes,
-      (reported) => this.model.observe(reported),
-      options.initialMode,
-    )
+    this.settings = new NativeSettings(options, (reported) => this.model.observe(reported))
     this.tools = new ToolMirror({
       mintCallId: options.mintCallId ?? (() => `cli-${randomUUID()}`),
       settleMs: options.toolSettleMs ?? DEFAULT_TOOL_SETTLE_MS,
@@ -138,12 +134,22 @@ export class CliSession {
 
   /** The CLI's own modes, exactly as it last reported them. */
   get modes(): CliModeList | undefined {
-    return this.mode.current()
+    return this.settings.mode.current()
   }
 
   /** A mode the user picked that the CLI has not confirmed yet. */
   get pendingMode(): string | undefined {
-    return this.mode.pending
+    return this.settings.mode.pending
+  }
+
+  /** The active model's fast mode, as the CLI last reported it; undefined while it has none. */
+  get speed(): CliSpeedList | undefined {
+    return this.settings.speed.current()
+  }
+
+  /** A fast mode the user picked that the CLI has not confirmed yet. */
+  get pendingSpeed(): string | undefined {
+    return this.settings.speed.pending
   }
 
   /**
@@ -155,10 +161,19 @@ export class CliSession {
    * @throws when the CLI never offered that mode, or refuses the change.
    */
   async switchMode(mode: string, signal?: AbortSignal): Promise<CliModeList | undefined> {
-    this.mode.choose(mode)
-    const { transport, acpSessionId, label } = this
-    if (transport === undefined || acpSessionId === undefined) return this.mode.current()
-    return this.mode.apply({ transport, acpSessionId, label }, signal)
+    return this.settings.change(this.settings.mode, mode, this.target(), signal)
+  }
+
+  /**
+   * Turn the CLI's fast mode on or off, by the value the CLI itself reported. Like a mode,
+   * a pick made before the CLI has started waits for the first step.
+   * @param value - the value, unchanged.
+   * @param signal - cancellation for the wait.
+   * @returns the fast mode as the CLI now reports it, or the known one when it has not started.
+   * @throws when the CLI never offered that value, or refuses the change.
+   */
+  async switchSpeed(value: string, signal?: AbortSignal): Promise<CliSpeedList | undefined> {
+    return this.settings.change(this.settings.speed, value, this.target(), signal)
   }
 
   /**
@@ -286,27 +301,31 @@ export class CliSession {
     return blocks
   }
 
-  /** The model goes first: switching it can change which reasoning levels exist. */
+  /** Where a change is sent, once the CLI has started. */
+  private target(): ModelTarget | undefined {
+    const { transport, acpSessionId, label } = this
+    return transport === undefined || acpSessionId === undefined ? undefined : { transport, acpSessionId, label }
+  }
+
+  /** The model goes first: switching it can change which reasoning levels and speeds exist. */
   private async applySelection(
     { model, reasoningEffort }: StreamRequest,
     signal: AbortSignal | undefined,
   ): Promise<void> {
-    const { transport, acpSessionId, label } = this
-    if (transport === undefined || acpSessionId === undefined) return
-    await this.model.apply(model, { transport, acpSessionId, label }, signal)
-    const kept = await this.effort.apply(reasoningEffort, { transport, acpSessionId, label }, signal)
+    const where = this.target()
+    if (where === undefined) return
+    await this.model.apply(model, where, signal)
+    const kept = await this.effort.apply(reasoningEffort, where, signal)
     if (kept !== undefined && reasoningEffort !== undefined) {
       this.events.push({
         type: 'text',
         notice: true,
-        text: `（${label} 当前模型不支持思考强度 ${reasoningEffort}，沿用 CLI 的 ${kept}。请在菜单里重新选择。）\n\n`,
+        text: `（${where.label} 当前模型不支持思考强度 ${reasoningEffort}，沿用 CLI 的 ${kept}。请在菜单里重新选择。）\n\n`,
       })
     }
-    // A mode picked before the CLI started has had no session to change until now.
-    const refusal = await this.mode.settle({ transport, acpSessionId, label }, signal)
-    if (refusal !== undefined) {
-      this.events.push({ type: 'text', notice: true, text: refusal.notice })
-      this.options.onModeRefused?.(refusal.mode)
+    // A mode or speed picked before the CLI started has had no session to change until now.
+    for (const notice of await this.settings.settle(where, signal)) {
+      this.events.push({ type: 'text', notice: true, text: notice })
     }
   }
 
@@ -317,7 +336,7 @@ export class CliSession {
    */
   private noteOptions(options: ConfigOptions, isNewSession: boolean): void {
     this.effort.observe(options)
-    this.mode.observe(options)
+    this.settings.observe(options)
     const fresh = isNewSession ? readModeList(options) : undefined
     if (fresh !== undefined) this.options.onModes?.(fresh)
     const model = readModelList(options)?.current

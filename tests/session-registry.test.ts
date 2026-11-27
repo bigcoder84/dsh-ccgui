@@ -30,6 +30,9 @@ function fakeSession(fields: Partial<CliSession> = {}): CliSession {
     modes: undefined,
     pendingMode: undefined,
     switchMode: vi.fn(() => Promise.resolve(undefined)),
+    speed: undefined,
+    pendingSpeed: undefined,
+    switchSpeed: vi.fn(() => Promise.resolve(undefined)),
     ...fields,
   } as unknown as CliSession
 }
@@ -413,6 +416,128 @@ describe('native modes', () => {
     const calls = vi.mocked(deps.createSession).mock.calls
     expect(calls[0]?.[3]).toMatchObject({ initialMode: 'plan' })
     expect(calls[1]?.[3]).toMatchObject({ initialMode: 'plan' })
+  })
+})
+
+const FAST = {
+  configId: 'fast-mode',
+  current: 'off',
+  options: [
+    { value: 'off', name: 'Off' },
+    { value: 'on', name: 'On' },
+  ],
+}
+
+// Fast mode is held and handed over like a mode, but apart from it: picking one must
+// never drop or replace the other.
+describe('fast mode', () => {
+  it('reads the model a session has selected', () => {
+    const agent = fakeAgent()
+    vi.mocked(agent.model.current).mockReturnValue({ provider: 'cli-x', model: 'big' })
+    const { registry } = setup({ getAgent: (id) => (id === 'dsh-1' ? agent : undefined) })
+    expect(registry.selectedModel('dsh-1')).toBe('big')
+    expect(registry.selectedModel('dsh-2')).toBeUndefined()
+  })
+
+  it('knows which route a session has a CLI on', () => {
+    const { registry } = setup()
+    expect(registry.isLive('dsh-1', 'cli-x')).toBe(false)
+    registry.resolveSession('cli-x', 'dsh-1')
+    expect(registry.isLive('dsh-1', 'cli-x')).toBe(true)
+    expect(registry.isLive('dsh-1', 'cli-y')).toBe(false)
+    registry.disposeSession('dsh-1')
+    expect(registry.isLive('dsh-1', 'cli-x')).toBe(false)
+  })
+
+  it('reads a live CLI fast mode on its own route only', () => {
+    const live = fakeSession({ speed: FAST, pendingSpeed: 'on' })
+    const { registry } = setup({ createSession: () => live })
+    expect(registry.speedStateFor('dsh-1', 'cli-x')).toEqual({})
+    registry.resolveSession('cli-x', 'dsh-1')
+    expect(registry.speedStateFor('dsh-1', 'cli-x')).toEqual({ speed: FAST, pending: 'on' })
+    expect(registry.speedStateFor('dsh-1', 'cli-y')).toEqual({})
+  })
+
+  it('sends a pick to the live CLI unchanged', async () => {
+    const live = fakeSession({ speed: FAST, switchSpeed: vi.fn(() => Promise.resolve(FAST)) })
+    const { registry } = setup({ createSession: () => live })
+    registry.resolveSession('cli-x', 'dsh-1')
+    await expect(registry.switchSpeed('dsh-1', 'cli-x', 'on')).resolves.toEqual(FAST)
+    expect(live.switchSpeed).toHaveBeenCalledWith('on')
+  })
+
+  it('keeps a pick until the CLI starts, and starts it with that pick', async () => {
+    const { deps, registry } = setup()
+    await expect(registry.switchSpeed('dsh-1', 'cli-x', 'on')).resolves.toBeUndefined()
+    expect(registry.speedStateFor('dsh-1', 'cli-x')).toEqual({ pending: 'on' })
+    registry.resolveSession('cli-x', 'dsh-1')
+    expect(vi.mocked(deps.createSession).mock.calls[0]?.[3]).toMatchObject({ initialSpeed: 'on' })
+  })
+
+  it('keeps a mode and a fast mode picked before the CLI started side by side', async () => {
+    const { deps, registry } = setup()
+    await registry.switchMode('dsh-1', 'cli-x', 'plan')
+    await registry.switchSpeed('dsh-1', 'cli-x', 'on')
+    expect(registry.modeStateFor('dsh-1', 'cli-x')).toEqual({ pending: 'plan' })
+    registry.resolveSession('cli-x', 'dsh-1')
+    expect(vi.mocked(deps.createSession).mock.calls[0]?.[3]).toMatchObject({ initialMode: 'plan', initialSpeed: 'on' })
+  })
+
+  it('does not carry a pick over to another CLI', async () => {
+    const { deps, registry } = setup()
+    await registry.switchSpeed('dsh-1', 'cli-y', 'on')
+    registry.resolveSession('cli-x', 'dsh-1')
+    expect(vi.mocked(deps.createSession).mock.calls[0]?.[3]).not.toHaveProperty('initialSpeed')
+  })
+
+  it('rejects a route that is not a CLI', async () => {
+    await expect(setup().registry.switchSpeed('dsh-1', 'nope', 'on')).rejects.toMatchObject({
+      code: 'CLI_SPEED_FAILED',
+    })
+  })
+
+  it('drops a pick the live CLI refused, so no replacement starts on it', async () => {
+    const live = fakeSession({ replaceable: true, switchSpeed: vi.fn(() => Promise.reject(new Error('refused'))) })
+    const { deps, registry } = setup({ createSession: vi.fn(() => live) })
+    registry.resolveSession('cli-x', 'dsh-1')
+    await expect(registry.switchSpeed('dsh-1', 'cli-x', 'on')).rejects.toThrow('refused')
+    registry.resolveSession('cli-x', 'dsh-1')
+    expect(vi.mocked(deps.createSession).mock.calls[1]?.[3]).not.toHaveProperty('initialSpeed')
+  })
+
+  // The session exists from the first step, but its CLI may still be starting: a pick made
+  // then is settled with the first message, and a refusal there must reach the registry too.
+  it('forgets a pick made while its CLI was starting, once the CLI refuses it', async () => {
+    const { deps, registry } = setup({ createSession: vi.fn(() => fakeSession({ replaceable: true })) })
+    registry.resolveSession('cli-x', 'dsh-1')
+    await registry.switchSpeed('dsh-1', 'cli-x', 'on')
+    await registry.switchMode('dsh-1', 'cli-x', 'plan')
+    const start = vi.mocked(deps.createSession).mock.calls[0]?.[3]
+    start?.onSpeedRefused?.('on')
+    start?.onModeRefused?.('plan')
+    registry.resolveSession('cli-x', 'dsh-1')
+    const next = vi.mocked(deps.createSession).mock.calls[1]?.[3]
+    expect(next).not.toHaveProperty('initialSpeed')
+    expect(next).not.toHaveProperty('initialMode')
+  })
+
+  it('forgets a pick the CLI refused at its first step, and leaves the mode alone', async () => {
+    const { deps, registry } = setup({ createSession: vi.fn(() => fakeSession({ replaceable: true })) })
+    await registry.switchMode('dsh-1', 'cli-x', 'plan')
+    await registry.switchSpeed('dsh-1', 'cli-x', 'on')
+    registry.resolveSession('cli-x', 'dsh-1')
+    vi.mocked(deps.createSession).mock.calls[0]?.[3].onSpeedRefused?.('on')
+    registry.resolveSession('cli-x', 'dsh-1')
+    const next = vi.mocked(deps.createSession).mock.calls[1]?.[3]
+    expect(next).not.toHaveProperty('initialSpeed')
+    expect(next).toMatchObject({ initialMode: 'plan' })
+  })
+
+  it('forgets a pick with its session', async () => {
+    const { registry } = setup()
+    await registry.switchSpeed('dsh-1', 'cli-x', 'on')
+    registry.disposeSession('dsh-1')
+    expect(registry.speedStateFor('dsh-1', 'cli-x')).toEqual({})
   })
 })
 

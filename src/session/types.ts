@@ -47,6 +47,10 @@ export interface CliSessionOptions {
   readonly onModes?: (modes: CliModeList) => void
   /** Told when the CLI would not take {@link initialMode}, which the session has then dropped. */
   readonly onModeRefused?: (mode: string) => void
+  /** A fast mode the user picked before this session existed, sent with the first step like a mode. */
+  readonly initialSpeed?: string
+  /** Told when the CLI would not take {@link initialSpeed}, which the session has then dropped. */
+  readonly onSpeedRefused?: (value: string) => void
   /** Reads pasted images from the harness; absent when it has no attachment service. */
   readonly readImage?: ReadImage
   /** Receives failures that have no caller left to reject. */

@@ -1,7 +1,7 @@
 /**
- * The browser side of the composer's mode control. It asks the plugin's mode route what a
- * CLI reported and posts back the id the user picked, unchanged: this layer never maps a
- * CLI mode onto anything the harness has of its own.
+ * The browser side of the composer's mode control and fast-mode toggle. It asks the plugin's
+ * mode route what a CLI reported and posts back the id the user picked, unchanged: this layer
+ * never maps a CLI mode onto anything the harness has of its own.
  * @module dsh-ccgui/client/mode-api
  */
 
@@ -27,7 +27,14 @@ export interface ModeReply {
   readonly modes: NativeModes | undefined
   /** A mode picked before the CLI started, not confirmed yet. */
   readonly pending: string | undefined
+  /** The CLI's fast mode, `on` or `off`; absent while its model has none. */
+  readonly speed?: NativeModes | undefined
+  /** A fast mode picked before the CLI started, not confirmed yet. */
+  readonly speedPending?: string | undefined
 }
+
+/** Which of the CLI's settings a pick is for. */
+type ModeSetting = 'mode' | 'speed'
 
 /** Posts JSON to a plugin route; `window.fetch` needs its receiver, so callers wrap it. */
 export type PostJson = (input: string, init: RequestInit) => Promise<Response>
@@ -35,7 +42,8 @@ export type PostJson = (input: string, init: RequestInit) => Promise<Response>
 /** What the mode control calls. */
 export interface ModeApi {
   read(provider: string): Promise<ModeReply>
-  write(provider: string, mode: string): Promise<ModeReply>
+  /** Picks a value for one setting; the mode unless said otherwise. */
+  write(provider: string, value: string, setting?: ModeSetting): Promise<ModeReply>
 }
 
 const UNKNOWN_ERROR = '切换 CLI 模式失败'
@@ -62,8 +70,26 @@ function replyOf(body: unknown): ModeReply {
   if (!isObject(body)) throw new Error(BAD_REPLY)
   if (body.success !== true) throw new Error(isText(body.error) ? body.error : UNKNOWN_ERROR)
   const data = isObject(body.data) ? body.data : {}
-  return { modes: modesOf(data.modes), pending: isText(data.pending) ? data.pending : undefined }
+  return {
+    modes: modesOf(data.modes),
+    pending: isText(data.pending) ? data.pending : undefined,
+    speed: modesOf(data.speed),
+    speedPending: isText(data.speedPending) ? data.speedPending : undefined,
+  }
 }
+
+/** A failing answer may carry no JSON at all, such as a proxy's error page. */
+async function bodyOf(response: Response): Promise<unknown> {
+  try {
+    return (await response.json()) as unknown
+  } catch {
+    // Only the status is left to report, which the caller does.
+    return undefined
+  }
+}
+
+/** The route refuses with a reason the user can act on, under a failing status. */
+const errorOf = (body: unknown): string | undefined => (isObject(body) && isText(body.error) ? body.error : undefined)
 
 /**
  * @param post - the fetch to post with.
@@ -71,16 +97,20 @@ function replyOf(body: unknown): ModeReply {
  * @returns the mode control's two calls.
  */
 export function createModeApi(post: PostJson, sessionId: string): ModeApi {
-  const send = async (provider: string, mode?: string): Promise<ModeReply> => {
+  const send = async (provider: string, pick: Partial<Record<ModeSetting, string>>): Promise<ModeReply> => {
     const response = await post(MODE_ROUTE_PREFIX, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ sessionId, provider, ...(mode === undefined ? {} : { mode }) }),
+      body: JSON.stringify({ sessionId, provider, ...pick }),
     })
-    if (!response.ok) throw new Error(`${UNKNOWN_ERROR}（HTTP ${response.status}）`)
-    return replyOf(await response.json())
+    const body = await bodyOf(response)
+    if (!response.ok) throw new Error(errorOf(body) ?? `${UNKNOWN_ERROR}（HTTP ${response.status}）`)
+    return replyOf(body)
   }
-  return { read: (provider) => send(provider), write: (provider, mode) => send(provider, mode) }
+  return {
+    read: (provider) => send(provider, {}),
+    write: (provider, value, setting = 'mode') => send(provider, { [setting]: value }),
+  }
 }
 
 /** One API per session: a control that reads in an effect must not be handed a new object

@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { LlmError } from '@deepseek-ai/dsh-llm'
 import { modeHandler } from '../src/mode-routes.ts'
 import type { ModeRoutes } from '../src/mode-routes.ts'
-import type { CliModeList } from '../src/model-options.ts'
+import type { CliModeList, CliSpeedList } from '../src/model-options.ts'
 
 const MODES: CliModeList = {
   configId: 'permission_mode',
@@ -12,6 +12,15 @@ const MODES: CliModeList = {
   options: [
     { value: 'default', name: 'Default' },
     { value: 'plan', name: 'Plan' },
+  ],
+}
+
+const FAST: CliSpeedList = {
+  configId: 'fast-mode',
+  current: 'off',
+  options: [
+    { value: 'off', name: 'Off' },
+    { value: 'on', name: 'On' },
   ],
 }
 
@@ -51,6 +60,7 @@ async function post(body: unknown, options: Options = {}): Promise<Captured & { 
   const routes: ModeRoutes = {
     modeState: vi.fn(() => ({ modes: MODES })),
     switchMode: vi.fn(() => Promise.resolve(MODES)),
+    switchSpeed: vi.fn(() => Promise.resolve(undefined)),
     ...options.routes,
   }
   const connection = { requestRejection: () => options.rejection }
@@ -71,7 +81,7 @@ describe('mode route', () => {
   })
 
   it('takes POST only', async () => {
-    const routes: ModeRoutes = { modeState: vi.fn(), switchMode: vi.fn() }
+    const routes: ModeRoutes = { modeState: vi.fn(), switchMode: vi.fn(), switchSpeed: vi.fn() }
     const handler = modeHandler(routes, { requestRejection: () => undefined }, () => undefined)
     const { res, captured } = responseOf()
     await handler(requestOf('{}', { method: 'GET' }), res)
@@ -109,7 +119,10 @@ describe('mode route', () => {
     )
     expect(result.status).toBe(200)
     expect(result.routes.switchMode).not.toHaveBeenCalled()
-    expect(json(result)).toEqual({ success: true, data: { modes: MODES, pending: 'plan' } })
+    expect(json(result)).toEqual({
+      success: true,
+      data: { modes: MODES, pending: 'plan', speed: null, speedPending: null },
+    })
   })
 
   it('sends the pick through unchanged and answers with what the CLI reports', async () => {
@@ -124,12 +137,18 @@ describe('mode route', () => {
       },
     )
     expect(result.routes.switchMode).toHaveBeenCalledWith('dsh-1', 'cli-x', 'plan')
-    expect(json(result)).toEqual({ success: true, data: { modes: switched, pending: null } })
+    expect(json(result)).toEqual({
+      success: true,
+      data: { modes: switched, pending: null, speed: null, speedPending: null },
+    })
   })
 
   it('answers with nulls when the CLI reports no modes', async () => {
     const result = await post({ sessionId: 'dsh-1', provider: 'cli-x' }, { routes: { modeState: () => ({}) } })
-    expect(json(result)).toEqual({ success: true, data: { modes: null, pending: null } })
+    expect(json(result)).toEqual({
+      success: true,
+      data: { modes: null, pending: null, speed: null, speedPending: null },
+    })
   })
 
   it('passes a refusal the user can act on', async () => {
@@ -153,5 +172,41 @@ describe('mode route', () => {
     expect(result.status).toBe(500)
     expect(json(result)).toEqual({ success: false, error: '切换模式失败，请查看日志' })
     expect(warn).toHaveBeenCalledWith('ccgui: mode request failed: socket closed')
+  })
+
+  it('reads the fast mode and a pick waiting for it beside the modes', async () => {
+    const result = await post(
+      { sessionId: 'dsh-1', provider: 'cli-x' },
+      { routes: { modeState: () => ({ modes: MODES, speed: FAST, speedPending: 'on' }) } },
+    )
+    expect(json(result)).toEqual({
+      success: true,
+      data: { modes: MODES, pending: null, speed: FAST, speedPending: 'on' },
+    })
+  })
+
+  it('sends a fast-mode pick through unchanged, leaving the mode alone', async () => {
+    const result = await post(
+      { sessionId: 'dsh-1', provider: 'cli-x', speed: 'on' },
+      { routes: { modeState: () => ({ modes: MODES, speed: { ...FAST, current: 'on' } }) } },
+    )
+    expect(result.routes.switchSpeed).toHaveBeenCalledWith('dsh-1', 'cli-x', 'on')
+    expect(result.routes.switchMode).not.toHaveBeenCalled()
+    expect(json(result)).toMatchObject({ success: true, data: { speed: { current: 'on' } } })
+  })
+
+  it('rejects a fast mode that is not a string', async () => {
+    const result = await post({ sessionId: 'dsh-1', provider: 'cli-x', speed: true })
+    expect(result.status).toBe(400)
+  })
+
+  it('names the fast mode when switching it fails unexpectedly', async () => {
+    const warn = vi.fn()
+    const result = await post(
+      { sessionId: 'dsh-1', provider: 'cli-x', speed: 'on' },
+      { routes: { switchSpeed: () => Promise.reject(new Error('socket closed')) }, warn },
+    )
+    expect(result.status).toBe(500)
+    expect(json(result)).toEqual({ success: false, error: '切换快速模式失败，请查看日志' })
   })
 })

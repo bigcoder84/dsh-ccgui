@@ -9,6 +9,15 @@ const MODES = {
   options: [{ value: 'plan', name: 'Plan' }],
 }
 
+const FAST = {
+  configId: 'fast-mode',
+  current: 'off',
+  options: [
+    { value: 'off', name: 'Off' },
+    { value: 'on', name: 'On' },
+  ],
+}
+
 function poster(body: unknown, { ok = true, status = 200 } = {}): PostJson {
   return vi.fn(() => Promise.resolve({ ok, status, json: () => Promise.resolve(body) } as unknown as Response))
 }
@@ -68,6 +77,24 @@ describe('mode API', () => {
     await expect(createModeApi(post, 'dsh-1').write('cli-x', 'plan')).rejects.toThrow('这个 CLI 没有报告模式 plan。')
   })
 
+  // The route answers a refusal with 400 and the reason in the body; that reason is what the
+  // user needs, not the status code.
+  it('passes on the reason the route gave with a failing status', async () => {
+    const post = poster({ success: false, error: '当前模型不支持快速模式' }, { ok: false, status: 400 })
+    await expect(createModeApi(post, 'dsh-1').write('cli-x', 'on', 'speed')).rejects.toThrow(/^当前模型不支持快速模式$/)
+  })
+
+  it('reports an HTTP failure whose body is not JSON', async () => {
+    const post: PostJson = vi.fn(() =>
+      Promise.resolve({
+        ok: false,
+        status: 502,
+        json: () => Promise.reject(new Error('not json')),
+      } as unknown as Response),
+    )
+    await expect(createModeApi(post, 'dsh-1').read('cli-x')).rejects.toThrow('HTTP 502')
+  })
+
   it('reports an HTTP failure', async () => {
     const post = poster({}, { ok: false, status: 500 })
     await expect(createModeApi(post, 'dsh-1').read('cli-x')).rejects.toThrow('HTTP 500')
@@ -91,5 +118,27 @@ describe('mode API', () => {
   it('keeps sessions apart', () => {
     const post = poster({ success: true, data: { modes: MODES, pending: null } })
     expect(modeApiFor(post, 'dsh-3')).not.toBe(modeApiFor(post, 'dsh-4'))
+  })
+
+  it('reads the fast mode and a pick waiting for it', async () => {
+    const post = poster({ success: true, data: { modes: MODES, pending: null, speed: FAST, speedPending: 'on' } })
+    await expect(createModeApi(post, 'dsh-1').read('cli-x')).resolves.toEqual({
+      modes: MODES,
+      pending: undefined,
+      speed: FAST,
+      speedPending: 'on',
+    })
+  })
+
+  it('sends a fast-mode pick on its own, never as a mode', async () => {
+    const post = poster({ success: true, data: { modes: MODES, pending: null, speed: FAST, speedPending: null } })
+    await createModeApi(post, 'dsh-1').write('cli-x', 'on', 'speed')
+    expect(sent(post).body).toEqual({ sessionId: 'dsh-1', provider: 'cli-x', speed: 'on' })
+  })
+
+  it('reads a malformed fast mode as none', async () => {
+    const post = poster({ success: true, data: { modes: MODES, pending: null, speed: { configId: 'fast-mode' } } })
+    const reply = await createModeApi(post, 'dsh-1').read('cli-x')
+    expect(reply.speed).toBeUndefined()
   })
 })
