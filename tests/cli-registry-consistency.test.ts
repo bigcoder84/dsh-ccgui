@@ -126,7 +126,7 @@ describe('CLI registry consistency', () => {
     if (mark !== 'cli')
       expect(
         svg?.innerHTML,
-        `src/client/marks.tsx has no drawing for mark '${mark ?? ''}' (agent "${id}"): ProviderMark falls back to ` +
+        `src/client/marks.tsx has no drawing for mark '${mark}' (agent "${id}"): ProviderMark falls back to ` +
           `the generic prompt. Add it to MONOCHROME or COLORED, or give it a component like OmpMark.`,
       ).not.toBe(generic)
   })

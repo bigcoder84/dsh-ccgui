@@ -253,15 +253,8 @@ export function MarkGlyph({ id, size }: MarkProps): ReactElement {
  * Draw a provider's mark.
  * @param props.provider - a provider route.
  * @param props.size - width and height in pixels.
- * @returns the mark, or nothing for a provider with none.
+ * @returns the mark: a CLI's own or the generic CLI one, else the harness's.
  */
-export function ProviderMark({
-  provider,
-  size,
-}: {
-  readonly provider: string
-  readonly size: number
-}): ReactElement | null {
-  const id = markOf(provider)
-  return id === undefined ? null : <MarkGlyph id={id} size={size} />
+export function ProviderMark({ provider, size }: { readonly provider: string; readonly size: number }): ReactElement {
+  return <MarkGlyph id={markOf(provider)} size={size} />
 }

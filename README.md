@@ -141,7 +141,7 @@ worktree 收在所属项目下面的「Worktrees · N」分组里，展开后每
 
 ### 会话状态
 
-会话列表里每个会话前是它所用 CLI 的图标，回合进行中旁边多一个呼吸的蓝点。
+会话列表里每个会话前是它所用 CLI 的图标，DSH 自己的会话（不管用的是哪家的模型，比如 ChatGPT 订阅）是 DeepSeek 图标；回合进行中旁边多一个呼吸的蓝点。
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="./assets/illustrations/07-session-status-dark.webp" />

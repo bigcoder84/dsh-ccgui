@@ -39,8 +39,9 @@ describe('ProviderMark', () => {
     expect(svg?.getAttribute('height')).toBe('20')
   })
 
-  it('draws nothing for a provider nothing is known about', () => {
-    expect(markOn('openrouter')).toBeNull()
+  it("draws the harness's mark for a provider that is not a CLI", () => {
+    expect(markOn('openai-codex')).not.toBeNull()
+    expect(markOn('openai-codex')?.outerHTML).toBe(markOn('deepseek-official')?.outerHTML)
   })
 
   // Several gradient marks on one page must each paint with their own gradient.

@@ -5,7 +5,7 @@
  * @module dsh-ccgui/client/model-marks
  */
 
-import { markOf } from './provider-marks.ts'
+import { makerMarkOf } from './provider-marks.ts'
 import type { ProviderMarkId } from './provider-marks.ts'
 
 /** The fields of a row this reads; the id and the display name are matched together. */
@@ -55,7 +55,7 @@ export function modelMarkOf({ provider, model, name }: ModelIdentity): ProviderM
   const text = `${model} ${name}`
   const family = FAMILIES.find(([, pattern]) => pattern.test(text))
   if (family !== undefined) return family[0]
-  const own = markOf(provider)
+  const own = makerMarkOf(provider)
   if (own === undefined) return undefined
   return VENDOR_MARKS.has(own) ? own : 'unknown'
 }

@@ -21,9 +21,11 @@ describe('markOf', () => {
     expect(markOf('cli-someone-elses')).toBe('cli')
   })
 
-  // Claiming a brand for a provider nothing is known about would mislabel it.
-  it('gives other providers no mark', () => {
-    expect(markOf('openrouter')).toBeUndefined()
+  // A provider that is not a CLI runs on the harness itself, whoever made its models: the mark
+  // says where the session runs, so ChatGPT subscription models show the harness's mark too.
+  it("gives every provider that is not a CLI the harness's mark", () => {
+    expect(markOf('openrouter')).toBe('deepseek')
+    expect(markOf('openai-codex')).toBe('deepseek')
   })
 })
 

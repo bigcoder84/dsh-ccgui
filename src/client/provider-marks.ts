@@ -50,16 +50,29 @@ export function ownMarkRoutes(): readonly string[] {
 }
 
 /**
- * Pick a provider's mark.
+ * Pick the mark of the route a session runs on, as the composer button, the provider tabs and
+ * the session list show it.
  * @param provider - a provider route.
- * @returns its mark, or undefined for a provider nothing is known about, since claiming
- * a brand for it would mislabel it. The official DeepSeek route is `deepseek-official`,
- * and people add their own routes to it.
+ * @returns the CLI's own mark, the generic CLI one for a CLI without one, or the harness's
+ * (DeepSeek's) for every other provider: those run on the harness itself, whoever made the
+ * model, so a ChatGPT subscription session shows it too.
  */
-export function markOf(provider: string): ProviderMarkId | undefined {
+export function markOf(provider: string): ProviderMarkId {
   const own = OWN_MARKS.get(provider)
   if (own !== undefined) return own
-  if (provider.startsWith(CLI_ROUTE_PREFIX)) return 'cli'
+  return provider.startsWith(CLI_ROUTE_PREFIX) ? 'cli' : 'deepseek'
+}
+
+/**
+ * Pick the mark of the maker a provider stands for, the fallback for a model row whose maker
+ * its name does not give away.
+ * @param provider - a provider route.
+ * @returns the CLI's mark, or DeepSeek's for a harness route that names it, which is how the
+ * official route (`deepseek-official`) and the routes people add to it read; undefined for
+ * any other harness provider, since claiming a maker for it would mislabel its models.
+ */
+export function makerMarkOf(provider: string): ProviderMarkId | undefined {
+  if (provider.startsWith(CLI_ROUTE_PREFIX)) return markOf(provider)
   return /deepseek/i.test(provider) ? 'deepseek' : undefined
 }
 
