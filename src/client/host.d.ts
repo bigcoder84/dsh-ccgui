@@ -37,6 +37,8 @@ declare module '@deepseek-ai/dsh-client-ui-primitives' {
     side?: 'top' | 'bottom' | 'left' | 'right'
     delayMs?: number
     disabled?: boolean
+    /** Render the bubble under `document.body`, out of a clipping or filtered ancestor. */
+    portal?: boolean
     children: ReactElement
   }>
   export const Input: ForwardRefExoticComponent<InputHTMLAttributes<HTMLInputElement> & RefAttributes<HTMLInputElement>>

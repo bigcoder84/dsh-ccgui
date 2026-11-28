@@ -11,6 +11,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import type { KeyboardEvent, PointerEvent, ReactElement } from 'react'
+import { Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import { browserClock, startParticles } from './particle-field.ts'
 import type { EffortScale, EffortStop } from './picker-model.ts'
 import { BoltIcon, ResetIcon } from './picker-icons.tsx'
@@ -32,6 +33,13 @@ const TOP_WARNING = '用量消耗更快'
 const FAST_ON = '快速模式已开启：响应更快，用量更高'
 const FAST_OFF = '开启快速模式：响应更快，用量更高'
 const RESET_LABEL = '恢复这个模型的默认深度'
+/**
+ * The host's tooltip rather than a native `title`, which shows late and in the system's own
+ * style, so hovering an icon button explains it the way the harness's own buttons do. It is
+ * portaled: the popover's backdrop filter makes it the box a fixed bubble is placed in, and its
+ * overflow would clip the bubble.
+ */
+const TIP = { side: 'top', delayMs: 300, portal: true } as const
 /**
  * Icon sizes, in px. The bolt is a narrow glyph, so it is drawn a little larger than the reset
  * arrow for the two to read as the same size beside the level's name.
@@ -198,35 +206,41 @@ export function EffortPanel(props: EffortPanelProps): ReactElement {
   return (
     <div className={PICKER_EFFORT_CLASS}>
       <div className={PICKER_EFFORT_HEAD_CLASS}>
-        <button
-          type="button"
-          className={PICKER_ICON_BUTTON_CLASS}
-          hidden={fast === undefined}
-          aria-pressed={fast?.on ?? false}
-          aria-label={fastLabel}
-          title={fast?.pending === true ? `${fastLabel}${PENDING_HINT}` : fastLabel}
-          disabled={disabled}
-          onClick={props.onFast}
+        <Tooltip
+          label={fast?.pending === true ? `${fastLabel}${PENDING_HINT}` : fastLabel}
+          {...TIP}
+          disabled={fast === undefined}
         >
-          <BoltIcon size={BOLT_SIZE} on={fast?.on ?? false} />
-        </button>
+          <button
+            type="button"
+            className={PICKER_ICON_BUTTON_CLASS}
+            hidden={fast === undefined}
+            aria-pressed={fast?.on ?? false}
+            aria-label={fastLabel}
+            disabled={disabled}
+            onClick={props.onFast}
+          >
+            <BoltIcon size={BOLT_SIZE} on={fast?.on ?? false} />
+          </button>
+        </Tooltip>
         <div>
           <span key={label} className={PICKER_EFFORT_NAME_CLASS} data-top={scale.top} data-bump="">
             {label}
           </span>
           {scale.top ? <div className={PICKER_EFFORT_WARN_CLASS}>{TOP_WARNING}</div> : null}
         </div>
-        <button
-          type="button"
-          className={PICKER_ICON_BUTTON_CLASS}
-          hidden={!levels}
-          aria-label={RESET_LABEL}
-          title={RESET_LABEL}
-          disabled={disabled}
-          onClick={props.onReset}
-        >
-          <ResetIcon size={RESET_SIZE} />
-        </button>
+        <Tooltip label={RESET_LABEL} {...TIP} disabled={!levels}>
+          <button
+            type="button"
+            className={PICKER_ICON_BUTTON_CLASS}
+            hidden={!levels}
+            aria-label={RESET_LABEL}
+            disabled={disabled}
+            onClick={props.onReset}
+          >
+            <ResetIcon size={RESET_SIZE} />
+          </button>
+        </Tooltip>
       </div>
       {levels ? <Track panel={props} slider={slider} /> : null}
     </div>

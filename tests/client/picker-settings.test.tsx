@@ -34,6 +34,9 @@ const slider = (): HTMLElement => screen.getByRole('slider', { name: '思考深�
 const BOLT_NAME = /^(开启快速模式|快速模式已开启)/
 const bolt = (): HTMLElement => screen.getByRole('button', { name: BOLT_NAME })
 const modeRow = (): HTMLElement => screen.getByRole('button', { name: /CLI 模式/ })
+/** The host tooltip a control sits in; the stub keeps its label on the wrapper. */
+const tipOf = (control: HTMLElement): string | null | undefined =>
+  control.closest('[data-tooltip]')?.getAttribute('data-tooltip')
 
 describe('the reasoning slider', () => {
   it('shows the levels of the model in use, at the one in effect', async () => {
@@ -200,7 +203,7 @@ describe('the fast-mode bolt', () => {
     await vi.waitFor(() => {
       expect(bolt().getAttribute('aria-pressed')).toBe('true')
     })
-    expect(bolt().getAttribute('title')).toBe('快速模式已开启：响应更快，用量更高，下一条消息发送时生效')
+    expect(tipOf(bolt())).toBe('快速模式已开启：响应更快，用量更高，下一条消息发送时生效')
   })
 
   // The fake CLI's default model is one: a fast tier, no reasoning levels.
@@ -216,7 +219,9 @@ describe('the fast-mode bolt', () => {
     expect(screen.queryByRole('slider')).toBeNull()
     expect(screen.queryByRole('button', { name: '恢复这个模型的默认深度' })).toBeNull()
     expect(popover.textContent).toContain('快速模式')
-    expect(bolt().getAttribute('title')).toBe('开启快速模式：响应更快，用量更高')
+    expect(tipOf(bolt())).toBe('开启快速模式：响应更快，用量更高')
+    // The host tooltip says it; a native one as well would show the same words twice.
+    expect(bolt().hasAttribute('title')).toBe(false)
   })
 
   it('reports a refused switch in a toast', async () => {
