@@ -46,7 +46,8 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-  rmSync(scratch, { recursive: true, force: true })
+  // A git process may still be writing its index when the test ends, which a single pass races.
+  rmSync(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 })
 
 describe('status', () => {

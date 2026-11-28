@@ -32,7 +32,8 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await new Promise((resolve) => server.close(resolve))
-  rmSync(repo, { recursive: true, force: true })
+  // A git process may still be writing its index when the test ends, which a single pass races.
+  rmSync(repo, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 })
 
 const post = (operation: string, body: unknown): Promise<Response> =>
