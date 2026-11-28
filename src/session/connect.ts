@@ -4,6 +4,7 @@
  * @module dsh-ccgui/session/connect
  */
 
+import { declaresSteering } from '../steering.ts'
 import type { AcpTransport, TransportHandlers } from '../transport.ts'
 import type { ModelState } from './model-state.ts'
 
@@ -30,9 +31,11 @@ export interface OpenedSession {
   readonly reattachFailed: boolean
   /** The CLI takes image blocks in a prompt. */
   readonly acceptsImages: boolean
+  /** The CLI takes input into a running turn; see `steering.ts`. */
+  readonly acceptsSteering: boolean
 }
 
-type Attached = Omit<OpenedSession, 'acceptsImages'>
+type Attached = Omit<OpenedSession, 'acceptsImages' | 'acceptsSteering'>
 
 /**
  * Connect to the CLI and open or continue its session.
@@ -43,18 +46,21 @@ export async function openSession(request: OpenSessionRequest): Promise<OpenedSe
   const { openTransport, handlers, cwd, nativeSessionId, model, onTransport } = request
   const transport = openTransport(handlers)
   onTransport(transport)
-  const { agentCapabilities } = await transport.initialize()
-  const acceptsImages = agentCapabilities?.promptCapabilities?.image === true
+  const { agentCapabilities, _meta } = await transport.initialize()
+  const accepts = {
+    acceptsImages: agentCapabilities?.promptCapabilities?.image === true,
+    acceptsSteering: declaresSteering(_meta),
+  }
   if (nativeSessionId === undefined) {
     const { sessionId, configOptions } = await transport.newSession(cwd)
     model.adopt(configOptions, true)
-    return { acpSessionId: sessionId, reattachFailed: false, acceptsImages }
+    return { acpSessionId: sessionId, reattachFailed: false, ...accepts }
   }
   const attached = await reattach(request, transport, nativeSessionId, {
     resume: agentCapabilities?.sessionCapabilities?.resume != null,
     load: agentCapabilities?.loadSession === true,
   })
-  return { ...attached, acceptsImages }
+  return { ...attached, ...accepts }
 }
 
 async function reattach(

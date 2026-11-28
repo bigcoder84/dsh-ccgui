@@ -13,6 +13,9 @@ import type {
   StopReason,
   Usage,
 } from '@agentclientprotocol/sdk'
+import type { SteerOutcome } from './steering.ts'
+
+export type { SteerOutcome } from './steering.ts'
 
 /** Callbacks from the CLI to its session. */
 export interface TransportHandlers {
@@ -60,6 +63,11 @@ export interface AcpTransport {
   closeSession(sessionId: string): Promise<void>
   /** Resolves when the whole CLI turn ends, however many tools it ran. */
   prompt(sessionId: string, blocks: readonly ContentBlock[]): Promise<PromptOutcome>
+  /**
+   * Send input into the running turn through the `_session/steering` extension. Only for a
+   * CLI that announced it; the answer arrives before the turn goes on to act on the input.
+   */
+  steer(sessionId: string, blocks: readonly ContentBlock[]): Promise<SteerOutcome>
   cancel(sessionId: string): void
   /** Stops the CLI. `force` skips the wait for it to exit by itself. */
   dispose(force?: boolean): Promise<void>

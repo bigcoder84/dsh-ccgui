@@ -8,10 +8,13 @@ import type {
   SessionUpdate,
   StopReason,
 } from '@agentclientprotocol/sdk'
-import type { AcpTransport, PromptOutcome, SessionInfo, TransportHandlers } from '../../src/transport.ts'
+import type { AcpTransport, PromptOutcome, SessionInfo, SteerOutcome, TransportHandlers } from '../../src/transport.ts'
 
 /** Script for one `session/prompt`: drive the fake, then return the stop reason, with usage if it matters. */
 export type PromptScript = (fake: FakeTransport) => Promise<StopReason | PromptOutcome> | StopReason | PromptOutcome
+
+/** Answer to one `_session/steering` request. */
+export type SteerScript = (blocks: readonly ContentBlock[]) => Promise<SteerOutcome> | SteerOutcome
 
 const toOutcome = (result: StopReason | PromptOutcome): PromptOutcome =>
   typeof result === 'string' ? { stopReason: result } : result
@@ -27,6 +30,10 @@ export class FakeTransport implements AcpTransport {
   readonly permissionAnswers: RequestPermissionResponse[] = []
   scripts: PromptScript[] = []
   capabilities: AgentCapabilities = {}
+  /** Declares `_session/steering` support in the initialize response. */
+  steering = false
+  readonly steered: (readonly ContentBlock[])[] = []
+  steerScript: SteerScript = () => 'injected'
   initializeError: Error | undefined
   resumeError: Error | undefined
   loadReplay: readonly SessionUpdate[] = []
@@ -57,7 +64,11 @@ export class FakeTransport implements AcpTransport {
 
   initialize(): Promise<InitializeResponse> {
     if (this.initializeError !== undefined) return Promise.reject(this.initializeError)
-    return Promise.resolve({ protocolVersion: 1, agentCapabilities: this.capabilities })
+    return Promise.resolve({
+      protocolVersion: 1,
+      agentCapabilities: this.capabilities,
+      ...(this.steering ? { _meta: { steering: { supported: true } } } : {}),
+    })
   }
 
   newSession(cwd: string): Promise<SessionInfo> {
@@ -115,6 +126,12 @@ export class FakeTransport implements AcpTransport {
           resolve(toOutcome(result))
         }, reject)
     })
+  }
+
+  steer(sessionId: string, blocks: readonly ContentBlock[]): Promise<SteerOutcome> {
+    this.operations.push('steer')
+    this.steered.push(blocks)
+    return Promise.resolve().then(() => this.steerScript(blocks))
   }
 
   cancel(sessionId: string): void {

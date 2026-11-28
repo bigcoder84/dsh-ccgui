@@ -1,12 +1,12 @@
 /**
  * CLI turns for one session: prompts waiting their turn, the turn in flight, and
- * cancelling it. Only one turn runs at a time; steering sent mid-turn waits here and
- * runs as the next turn.
+ * cancelling it. Only one turn runs at a time. Steering sent mid-turn goes into the
+ * running turn when the CLI takes it, and otherwise waits here to run as the next turn.
  * @module dsh-ccgui/session/turn-queue
  */
 
 import type { ContentBlock as AcpContentBlock } from '@agentclientprotocol/sdk'
-import type { AcpTransport, PromptOutcome } from '../transport.ts'
+import type { AcpTransport, PromptOutcome, SteerOutcome } from '../transport.ts'
 
 /** How a CLI turn ended. */
 export type TurnEnd =
@@ -30,8 +30,15 @@ export interface TurnHooks {
   readonly target: () => TurnTarget | undefined
   /** A prompt is going out; its messages now count as sent. */
   readonly onSend: (prompt: QueuedPrompt) => void
-  /** A turn ended. A cancelled turn is not reported to the reader, who already left it. */
-  readonly onEnd: (event: TurnEnd, wasCancelling: boolean) => void
+  /**
+   * A turn ended. `report` is false for a cancelled turn, whose reader already left it,
+   * and for a turn whose end is held back until a steer on the wire is answered.
+   */
+  readonly onEnd: (event: TurnEnd, report: boolean) => void
+  /** Whether the CLI takes input into a running turn. */
+  readonly steers: () => boolean
+  /** A steer failed outright; its input goes out as the next prompt instead. */
+  readonly onSteerError: (error: unknown) => void
   /** A cancelled CLI did not finish its turn within the grace period. */
   readonly onCancelTimeout: () => void
   /** How long a cancelled CLI may take to finish its turn before it is abandoned. */
@@ -47,6 +54,14 @@ export class TurnQueue {
   /** Aborted when the CLI turn ends, which withdraws any question still on screen. */
   private lifetime = new AbortController()
   private cancelTimer: NodeJS.Timeout | undefined
+  /** Steered prompts not answered yet, in the order they were sent. */
+  private steering: readonly QueuedPrompt[] = []
+  /** Steers go out one at a time, so a later one cannot overtake one the CLI turns away. */
+  private steerChain: Promise<void> = Promise.resolve()
+  /** Bumped when pending input is dropped, so a steer answered after that is dropped too. */
+  private generation = 0
+  /** The end of a turn that finished while a steer was on the wire. */
+  private heldEnd: TurnEnd | undefined
 
   constructor(private readonly hooks: TurnHooks) {}
 
@@ -60,14 +75,14 @@ export class TurnQueue {
     return this.stopping
   }
 
-  /** Whether a turn is running or waiting. */
+  /** Whether a turn is running or waiting, or a steer is still unanswered. */
   get busy(): boolean {
-    return this.running || this.pending.length > 0
+    return this.running || this.pending.length > 0 || this.steering.length > 0
   }
 
-  /** Ids of the user messages queued but not sent yet. */
+  /** Ids of the user messages queued or being steered but not sent yet. */
   get queuedIds(): readonly string[] {
-    return this.pending.flatMap((prompt) => prompt.ids)
+    return [...this.steering, ...this.pending].flatMap((prompt) => prompt.ids)
   }
 
   /** Aborted when the current turn ends. */
@@ -80,13 +95,26 @@ export class TurnQueue {
     return this.ended.promise
   }
 
-  enqueue(prompt: QueuedPrompt): void {
-    this.pending = [...this.pending, prompt]
-    this.pump()
+  /**
+   * Send user input: into the running turn when the CLI takes steering, otherwise as a
+   * turn of its own once the CLI is free.
+   * @param prompt - the input.
+   */
+  submit(prompt: QueuedPrompt): void {
+    if (this.steering.length === 0 && !this.canSteer()) {
+      this.enqueue(prompt)
+      return
+    }
+    this.steering = [...this.steering, prompt]
+    const generation = this.generation
+    this.steerChain = this.steerChain.then(() => this.steer(prompt, generation))
   }
 
   clearPending(): void {
     this.pending = []
+    this.steering = []
+    this.heldEnd = undefined
+    this.generation += 1
   }
 
   /** Withdraw anything still asked within the current turn. */
@@ -116,7 +144,9 @@ export class TurnQueue {
     const wasCancelling = this.stopping
     this.stopping = false
     this.lifetime.abort()
-    this.hooks.onEnd(event, wasCancelling)
+    // A steer the CLI declines becomes the next turn, and the reader must stay for it.
+    this.heldEnd = !wasCancelling && this.steering.length > 0 ? event : undefined
+    this.hooks.onEnd(event, !wasCancelling && this.heldEnd === undefined)
     this.ended.resolve()
     this.pump()
   }
@@ -129,6 +159,7 @@ export class TurnQueue {
     const [next, ...rest] = this.pending
     if (next === undefined) return
     this.pending = rest
+    this.heldEnd = undefined
     this.hooks.onSend(next)
     this.running = true
     this.ended = Promise.withResolvers<void>()
@@ -141,5 +172,42 @@ export class TurnQueue {
         this.end({ type: 'failure', error: error instanceof Error ? error : new Error(String(error)) })
       },
     )
+  }
+
+  private enqueue(prompt: QueuedPrompt): void {
+    this.pending = [...this.pending, prompt]
+    this.pump()
+  }
+
+  private canSteer(): boolean {
+    return this.running && !this.stopping && this.pending.length === 0 && this.hooks.steers()
+  }
+
+  private async steer(prompt: QueuedPrompt, generation: number): Promise<void> {
+    if (generation !== this.generation) return
+    const target = this.hooks.target()
+    const outcome = target !== undefined && this.canSteer() ? await this.sendSteer(target, prompt) : 'declined'
+    if (generation !== this.generation) return
+    this.steering = this.steering.filter((waiting) => waiting !== prompt)
+    if (outcome === 'injected') this.hooks.onSend(prompt)
+    else this.enqueue(prompt)
+    this.releaseHeldEnd()
+  }
+
+  private async sendSteer(target: TurnTarget, prompt: QueuedPrompt): Promise<SteerOutcome> {
+    try {
+      return await target.transport.steer(target.acpSessionId, prompt.blocks)
+    } catch (error: unknown) {
+      this.hooks.onSteerError(error)
+      return 'declined'
+    }
+  }
+
+  /** Report a held turn end once nothing is left to follow it. */
+  private releaseHeldEnd(): void {
+    const held = this.heldEnd
+    if (held === undefined || this.busy) return
+    this.heldEnd = undefined
+    this.hooks.onEnd(held, true)
   }
 }

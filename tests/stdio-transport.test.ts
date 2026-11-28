@@ -309,6 +309,25 @@ describe('openStdioTransport over a scripted subprocess', () => {
     await transport.dispose()
   })
 
+  // The host keeps a message the CLI could not fit into a turn, so it always opts out of
+  // the CLI starting a turn of its own.
+  it('steers with the host-owned fallback and reads only an injection as taken', async () => {
+    const answers = [{ outcome: 'injected' }, { outcome: 'promptRequired', reason: 'noRunningTurn' }, null]
+    const { transport, fake } = openFake({
+      exitOnEof: true,
+      respond: (message) =>
+        message.method === '_session/steering' ? { result: answers.shift() ?? {} } : { result: {} },
+    })
+    await expect(transport.steer('s1', text('stop'))).resolves.toBe('injected')
+    await expect(transport.steer('s1', text('stop'))).resolves.toBe('declined')
+    await expect(transport.steer('s1', text('stop'))).resolves.toBe('declined')
+    expect(fake.received[0]).toMatchObject({
+      method: '_session/steering',
+      params: { sessionId: 's1', prompt: text('stop'), _meta: { steering: { idleBehavior: 'promptRequired' } } },
+    })
+    await transport.dispose()
+  })
+
   // A request the CLI refuses must fail on its own; waiting for the connection to
   // close would hang the caller on a live process.
   it('rejects with the CLI error while the connection stays open', async () => {

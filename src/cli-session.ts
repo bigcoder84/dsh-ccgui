@@ -69,6 +69,8 @@ export class CliSession {
   private acpSessionId: string | undefined
   /** Whether the CLI declared image support when it connected. */
   private acceptsImages = false
+  /** Whether the CLI declared it takes input into a running turn. */
+  private acceptsSteering = false
   /** The CLI cannot see this conversation, and the user has not been told yet. */
   private owesFreshNotice = false
   private failure: LlmError | undefined
@@ -105,12 +107,14 @@ export class CliSession {
       onSend: (prompt) => {
         this.seen = new Set([...this.seen, ...prompt.ids])
       },
-      onEnd: (event, wasCancelling) => {
+      onEnd: (event, report) => {
         this.tools.failOpen()
         this.permissions.cancelAll()
         this.releaseEfforts()
-        if (!wasCancelling) this.events.push(event)
+        if (report) this.events.push(event)
       },
+      steers: () => this.acceptsSteering,
+      onSteerError: (error) => this.options.onError?.(error),
       onCancelTimeout: () => {
         this.dispose(true).catch((error: unknown) => this.options.onError?.(error))
       },
@@ -299,7 +303,7 @@ export class CliSession {
       this.owesFreshNotice = false
       this.pushFreshSessionNotice()
     }
-    this.turns.enqueue({ ids: input.ids, blocks })
+    this.turns.submit({ ids: input.ids, blocks })
   }
 
   private async promptBlocks(input: UserInput, signal: AbortSignal | undefined): Promise<AcpContentBlock[]> {
@@ -400,7 +404,7 @@ export class CliSession {
     // The registry no longer holds a session stopped during that wait, so a CLI
     // started now would have nobody to stop it.
     if (this.failure !== undefined) throw this.failure
-    const { acpSessionId, reattachFailed, acceptsImages } = await openSession({
+    const { acpSessionId, reattachFailed, acceptsImages, acceptsSteering } = await openSession({
       openTransport: this.options.openTransport,
       handlers: {
         onUpdate: (update) => this.handleUpdate(update),
@@ -417,6 +421,7 @@ export class CliSession {
     })
     this.acpSessionId = acpSessionId
     this.acceptsImages = acceptsImages
+    this.acceptsSteering = acceptsSteering
     this.owesFreshNotice = reattachFailed || (nativeSessionId === undefined && startsBlind)
   }
 

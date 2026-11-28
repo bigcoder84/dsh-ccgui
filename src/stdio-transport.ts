@@ -8,6 +8,7 @@
 import { Readable, Writable } from 'node:stream'
 import { client, methods, ndJsonStream, PROTOCOL_VERSION } from '@agentclientprotocol/sdk'
 import type { SubprocessHandle, SubprocessOutcome, SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
+import { readSteerOutcome, steeringParams, STEERING_METHOD } from './steering.ts'
 import type { AcpTransport, TransportHandlers } from './transport.ts'
 
 /** How to start one CLI. */
@@ -234,6 +235,8 @@ function sessionOperations(
         ...(stderr === '' ? {} : { stderr }),
       }
     },
+    steer: async (sessionId, blocks) =>
+      readSteerOutcome(await untilClosed(agent.request(STEERING_METHOD, steeringParams(sessionId, blocks)))),
     cancel: (sessionId) => {
       // Best effort: if the process is already gone, `closed` has reported it.
       agent.notify(session.cancel, { sessionId }).catch(() => {

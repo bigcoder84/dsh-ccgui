@@ -625,8 +625,9 @@ describe('CliSession permissions outside the running mirror', () => {
 })
 
 describe('CliSession steering', () => {
-  // ACP documents no way to add input to a running turn, so steering waits for
-  // the turn to end and then runs as the next prompt within the same harness turn.
+  // A CLI that does not announce `_session/steering` cannot take input into a running
+  // turn, so steering waits for the turn to end and runs as the next prompt within the
+  // same harness turn. Steering into the turn is covered in cli-session-steering.test.ts.
   it('sends steering as the next prompt after the running turn ends', async () => {
     const released = gate()
     const { fake, session } = setup(
