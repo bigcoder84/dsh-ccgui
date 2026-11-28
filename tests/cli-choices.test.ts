@@ -162,3 +162,57 @@ describe('selectionForChoice', () => {
     expect(selectionForChoice(state({ groups: [DEEPSEEK, empty] }), 'empty')).toBeUndefined()
   })
 })
+
+// The provider starts where the user last left it, as long as the catalog still has that.
+describe('selectionForChoice with a recalled selection', () => {
+  const LEVELS = {
+    efforts: [
+      { id: 'low', name: 'Low' },
+      { id: 'high', name: 'High' },
+    ],
+  }
+  const CODEX_MODELS = {
+    ...CODEX,
+    models: [
+      { id: 'default', name: 'Codex' },
+      { id: 'gpt-6-luna', name: '6 Luna', reasoning: LEVELS },
+    ],
+  }
+  const groups = [DEEPSEEK, CODEX_MODELS, ACCOUNT]
+
+  it('starts on the model and level last used there', () => {
+    const recalled = { provider: 'cli-codex', model: 'gpt-6-luna', reasoningEffort: 'low' }
+    expect(selectionForChoice(state({ groups }), 'cli-codex', recalled)).toEqual(recalled)
+  })
+
+  it('keeps the model but lets it pick its own level when the level is gone', () => {
+    const recalled = { provider: 'cli-codex', model: 'gpt-6-luna', reasoningEffort: 'ultra' }
+    expect(selectionForChoice(state({ groups }), 'cli-codex', recalled)).toEqual({
+      provider: 'cli-codex',
+      model: 'gpt-6-luna',
+    })
+  })
+
+  it('falls back to the default when the model is gone', () => {
+    const recalled = { provider: 'cli-codex', model: 'gpt-5-old', reasoningEffort: 'low' }
+    expect(selectionForChoice(state({ groups }), 'cli-codex', recalled)).toEqual({
+      provider: 'cli-codex',
+      model: 'default',
+    })
+  })
+
+  // The harness entry stands for every harness provider, so it recalls which one was used.
+  it('returns the harness entry to the harness provider last used', () => {
+    const current = { provider: 'cli-codex', model: 'default' }
+    const recalled = { provider: 'deepseek-account', model: 'chat' }
+    expect(selectionForChoice(state({ groups, current }), 'deepseek-official', recalled)).toEqual(recalled)
+  })
+
+  it('ignores a recalled selection on another provider than the one chosen', () => {
+    const recalled = { provider: 'deepseek-account', model: 'chat' }
+    expect(selectionForChoice(state({ groups }), 'cli-codex', recalled)).toEqual({
+      provider: 'cli-codex',
+      model: 'default',
+    })
+  })
+})

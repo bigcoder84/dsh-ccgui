@@ -23,6 +23,8 @@ import { cliChoices, selectionForChoice } from './choices.ts'
 import { arrangeChoices, createCliPrefs } from './cli-prefs.ts'
 import { createCliSwitchApi } from './cli-switch-api.ts'
 import { createCliSwitches } from './cli-switches.ts'
+import { createLastSelections } from './last-selections.ts'
+import type { LastSelections, LastSelectionsStorage } from './last-selections.ts'
 import type { CliPrefs, CliPrefsStorage } from './cli-prefs.ts'
 import type { DirectorySelection, DirectoryState } from './choices.ts'
 import { ProviderMark } from './marks.tsx'
@@ -69,7 +71,7 @@ interface SwitcherInjected {
   session: Store<{ blank?: boolean; removed?: boolean }> | undefined
 }
 
-type CliSwitcherProps = SwitcherInjected & { prefs: CliPrefs }
+type CliSwitcherProps = SwitcherInjected & { prefs: CliPrefs; lastSelections: LastSelections }
 
 /** The parts of the harness's client context this plugin uses. */
 interface ClientContext {
@@ -153,7 +155,7 @@ const STYLES = `
 
 // Looked up on each call: touching `localStorage` can throw where storage is blocked, and
 // that should cost the startup scripts, not the plugin's start.
-const BROWSER_STORAGE: ScriptStorage & FeatureStorage & CliPrefsStorage & ExpansionStorage = {
+const BROWSER_STORAGE: ScriptStorage & FeatureStorage & CliPrefsStorage & ExpansionStorage & LastSelectionsStorage = {
   getItem: (key) => window.localStorage.getItem(key),
   setItem: (key, value) => {
     window.localStorage.setItem(key, value)
@@ -182,11 +184,31 @@ function useStarted(session: Store<{ blank?: boolean }> | undefined): boolean {
   return snapshot.blank === false
 }
 
-function useChoose(state: DirectoryState, select: SwitcherInjected['select']) {
+/**
+ * Keep what the session is on as the last selection under its switcher entry, whichever menu
+ * changed it, so choosing that entry again in a later session starts there.
+ */
+function useRememberSelection(
+  current: DirectorySelection | null,
+  currentId: string | undefined,
+  lastSelections: LastSelections,
+): void {
+  const { provider, model, reasoningEffort } = current ?? {}
+  useEffect(() => {
+    if (currentId === undefined || provider === undefined || model === undefined) return
+    lastSelections.remember(currentId, {
+      provider,
+      model,
+      ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
+    })
+  }, [lastSelections, currentId, provider, model, reasoningEffort])
+}
+
+function useChoose(state: DirectoryState, select: SwitcherInjected['select'], lastSelections: LastSelections) {
   const [error, setError] = useState<string | undefined>()
   const choose = (id: string): void => {
     setError(undefined)
-    const selection = selectionForChoice(state, id)
+    const selection = selectionForChoice(state, id, lastSelections.get(id))
     if (selection === undefined) return
     void select(selection).then(
       (result) => {
@@ -200,15 +222,16 @@ function useChoose(state: DirectoryState, select: SwitcherInjected['select']) {
   return { error, choose }
 }
 
-function CliSwitcher({ directory, load, select, session, prefs }: CliSwitcherProps) {
+function CliSwitcher({ directory, load, select, session, prefs, lastSelections }: CliSwitcherProps) {
   const state = useStore(directory)
   const started = useStarted(session)
   const prefsSnapshot = useStore(prefs)
   const [open, setOpen] = useState(false)
-  const { error, choose } = useChoose(state, select)
+  const { error, choose } = useChoose(state, select, lastSelections)
   useEffect(load, [load])
 
   const { visible, items: listed, currentId, currentLabel } = cliChoices(state)
+  useRememberSelection(state.current, currentId, lastSelections)
   // Without a session-free provider list from the harness, this is how the settings page
   // learns what to offer; remembering an unchanged list is a no-op.
   useEffect(() => {
@@ -322,14 +345,15 @@ export const inject = ['slots', 'modelDirectories', 'sessions']
  * "what may run".
  * @param ctx - the plugin's client context.
  * @param cliPrefs - the remembered CLI choice, which the switcher orders itself by.
+ * @param lastSelections - the model last used under each switcher entry, which it starts on.
  */
-function registerComposerSlots(ctx: ClientContext, cliPrefs: CliPrefs): void {
+function registerComposerSlots(ctx: ClientContext, cliPrefs: CliPrefs, lastSelections: LastSelections): void {
   ctx.slots.inject(SLOT, () =>
     ctx.slots.register(
       {
         name: SLOT,
         id: 'dsh-ccgui.switcher',
-        inject: (sessionId) => ({ ...directoryFace(ctx, sessionId), prefs: cliPrefs }),
+        inject: (sessionId) => ({ ...directoryFace(ctx, sessionId), prefs: cliPrefs, lastSelections }),
       },
       CliSwitcher,
     ),
@@ -405,7 +429,7 @@ function registerSessionMarks(ctx: ClientContext): void {
 export function apply(ctx: ClientContext): void {
   ctx.effect(installStyles, 'ccgui: styles')
   const cliPrefs = createCliPrefs(BROWSER_STORAGE)
-  registerComposerSlots(ctx, cliPrefs)
+  registerComposerSlots(ctx, cliPrefs, createLastSelections(BROWSER_STORAGE))
   registerModeSeat(ctx)
   registerSessionMarks(ctx)
   const settings = createFeatureSettings(BROWSER_STORAGE)

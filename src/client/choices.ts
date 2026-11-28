@@ -128,21 +128,45 @@ export function cliChoices({ groups, current }: DirectoryState): CliChoices {
 }
 
 /**
- * Pick the model a provider starts on. A CLI starts on its own default; any other
- * provider has no such entry, so it starts on the first model it lists.
+ * A selection recalled for a switcher entry, if the catalog still has it. A CLI's entry recalls
+ * only that CLI; the harness entry recalls whichever harness provider was last used. A level the
+ * model no longer offers is dropped, so the model picks its own rather than being refused.
+ */
+function recalledSelection(
+  groups: readonly DirectoryGroup[],
+  choice: string,
+  recalled: DirectorySelection | undefined,
+): DirectorySelection | undefined {
+  if (recalled === undefined || (isCli(choice) ? recalled.provider !== choice : isCli(recalled.provider))) {
+    return undefined
+  }
+  const { provider, model, reasoningEffort } = recalled
+  const found = groups.find((group) => group.id === provider)?.models.find((candidate) => candidate.id === model)
+  if (found === undefined) return undefined
+  const offered = found.reasoning?.efforts.some((level) => level.id === reasoningEffort) ?? false
+  return offered && reasoningEffort !== undefined ? { provider, model, reasoningEffort } : { provider, model }
+}
+
+/**
+ * Pick the model a provider starts on: the one last used under that switcher entry while the
+ * catalog still has it, otherwise a CLI's own default or another provider's first model.
  * @param state - the session's model directory.
- * @param provider - the chosen provider.
+ * @param provider - the chosen switcher entry.
+ * @param recalled - what was last selected under that entry, if anything.
  * @returns the selection to apply, or undefined when there is nothing to change.
  */
 export function selectionForChoice(
   { groups, current }: DirectoryState,
   provider: string,
+  recalled?: DirectorySelection,
 ): DirectorySelection | undefined {
   if (current?.provider === provider) return undefined
   // The switcher's harness entry stands for every harness provider; on one already, the
   // model menu is where to pick another.
   const onHarness = groups.some((group) => group.id === current?.provider && !isCli(group.id))
   if (onHarness && !isCli(provider)) return undefined
+  const again = recalledSelection(groups, provider, recalled)
+  if (again !== undefined) return again
   const first = groups.find((group) => group.id === provider)?.models[0]
   if (first === undefined) return undefined
   return { provider, model: provider.startsWith(CLI_ROUTE_PREFIX) ? DEFAULT_MODEL_ID : first.id }

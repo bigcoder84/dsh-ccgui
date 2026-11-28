@@ -12,6 +12,7 @@ import type { ComponentType } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { DirectorySelection, DirectoryState } from '../../src/client/choices.ts'
 import { CLI_PREFS_STORAGE_KEY, parseCliPrefs } from '../../src/client/cli-prefs.ts'
+import { LAST_SELECTIONS_STORAGE_KEY, parseLastSelections } from '../../src/client/last-selections.ts'
 import { apply, inject } from '../../src/client/index.tsx'
 import type { ModeApi } from '../../src/client/mode-api.ts'
 import type { SessionRowValues } from '../../src/client/provider-marks.ts'
@@ -324,6 +325,35 @@ describe('CliSwitcher choosing', () => {
     await userEvent.click(screen.getByRole('menuitemradio', { name: label }))
     expect(h.select).toHaveBeenCalledWith(selection)
     expect(screen.queryByRole('menu')).toBeNull()
+  })
+
+  // A provider starts where the user last left it, so the model rarely needs changing.
+  it('starts an entry on the model and level last used there', async () => {
+    const luna = { provider: 'cli-codex', model: 'gpt-6-luna', reasoningEffort: 'low' }
+    window.localStorage.setItem(LAST_SELECTIONS_STORAGE_KEY, JSON.stringify({ 'cli-codex': luna }))
+    const levels = { efforts: [{ id: 'low', name: 'Low' }] }
+    const groups = CLI_STATE.groups.map((group) =>
+      group.id === 'cli-codex'
+        ? { ...group, models: [...group.models, { id: 'gpt-6-luna', name: '6 Luna', reasoning: levels }] }
+        : group,
+    )
+    const h = harness({ ...CLI_STATE, groups })
+    renderSlot(h, 'dsh-ccgui.switcher')
+    await userEvent.click(switcher())
+    await userEvent.click(screen.getByRole('menuitemradio', { name: 'Codex CLI' }))
+    expect(h.select).toHaveBeenCalledWith(luna)
+  })
+
+  it("remembers the session's selection under its entry, as it changes", () => {
+    const h = harness()
+    renderSlot(h, 'dsh-ccgui.switcher')
+    const recalled = () => parseLastSelections(window.localStorage.getItem(LAST_SELECTIONS_STORAGE_KEY))
+    expect(recalled()).toEqual({ 'cli-claude': { provider: 'cli-claude', model: 'default' } })
+    h.directory.set({ ...CLI_STATE, current: { provider: 'cli-claude', model: 'default', reasoningEffort: 'high' } })
+    expect(recalled()['cli-claude']).toEqual({ provider: 'cli-claude', model: 'default', reasoningEffort: 'high' })
+    // A harness provider is remembered under the switcher's one harness entry.
+    h.directory.set({ ...CLI_STATE, current: { provider: 'deepseek-official', model: 'deepseek-chat' } })
+    expect(recalled()['deepseek-official']).toEqual({ provider: 'deepseek-official', model: 'deepseek-chat' })
   })
 
   it('does nothing when the current CLI is chosen again', async () => {
