@@ -24,7 +24,7 @@ function readOption(value: unknown): CliModelOption | undefined {
   }
 }
 
-type OptionList = Omit<CliModelList, 'efforts' | 'modes' | 'speed'>
+type OptionList = Omit<CliModelList, 'efforts' | 'modes' | 'speed' | 'speeds'>
 
 /** Checked as strictly as a live answer: one empty id makes the harness drop the whole CLI. */
 function readOptions(value: unknown): OptionList | undefined {
@@ -36,34 +36,42 @@ function readOptions(value: unknown): OptionList | undefined {
   return { configId: value.configId, current: value.current, options: options.filter((option) => option !== undefined) }
 }
 
-/** Levels only add to the menu, so a bad entry loses that model's levels, not the list. */
-function readEfforts(value: unknown): Readonly<Record<string, CliEffortList | null>> | undefined {
-  if (!isObject(value) || Array.isArray(value)) return undefined
-  const entries = Object.entries(value).flatMap(([model, effort]): [string, CliEffortList | null][] => {
-    if (effort === null) return [[model, null]]
-    const read = readOptions(effort)
-    return read === undefined ? [] : [[model, read]]
-  })
-  return entries.length === 0 ? undefined : Object.fromEntries(entries)
-}
-
 /** A CLI's native modes, or its fast mode, kept verbatim; a bad entry loses it, not the list. */
 function readChoice(value: unknown): CliChoiceList | undefined {
   const read = readOptions(value)
   return read === undefined ? undefined : { configId: read.configId, current: read.current, options: read.options }
 }
 
+/**
+ * Something recorded per model, `null` for a model seen to have none. It only adds to the menu,
+ * so a bad entry loses that model's record, not the list.
+ */
+function readPerModel<T>(
+  value: unknown,
+  read: (entry: unknown) => T | undefined,
+): Readonly<Record<string, T | null>> | undefined {
+  if (!isObject(value) || Array.isArray(value)) return undefined
+  const entries = Object.entries(value).flatMap(([model, entry]): [string, T | null][] => {
+    if (entry === null) return [[model, null]]
+    const parsed = read(entry)
+    return parsed === undefined ? [] : [[model, parsed]]
+  })
+  return entries.length === 0 ? undefined : Object.fromEntries(entries)
+}
+
 function readList(value: unknown): CliModelList | undefined {
   const list = readOptions(value)
   if (list === undefined || !isObject(value)) return undefined
-  const efforts = readEfforts(value.efforts)
+  const efforts = readPerModel<CliEffortList>(value.efforts, readOptions)
   const modes = readChoice(value.modes)
   const speed = readChoice(value.speed)
+  const speeds = readPerModel(value.speeds, readChoice)
   return {
     ...list,
     ...(efforts === undefined ? {} : { efforts }),
     ...(modes === undefined ? {} : { modes }),
     ...(speed === undefined ? {} : { speed }),
+    ...(speeds === undefined ? {} : { speeds }),
   }
 }
 

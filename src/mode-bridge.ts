@@ -26,13 +26,14 @@ export interface ModeBridgeDeps {
 }
 
 /**
- * The fast mode a probe saw belongs to the model it ran on, the CLI's default. A session that
- * has selected another model may find no fast tier there, so it borrows nothing until its CLI
- * starts and reports for itself.
+ * The fast mode the probe saw on a session's selected model. The probe switched its own session
+ * to each model, since Codex reports a fast mode only for the model a session is on; a model it
+ * could not switch to borrows nothing until the session's CLI starts and reports for itself.
  */
 function probedSpeed(known: CliModelList | undefined, model: string | undefined): CliSpeedList | undefined {
   if (known === undefined) return undefined
-  return model === undefined || model === DEFAULT_MODEL_ID || model === known.current ? known.speed : undefined
+  if (model === undefined || model === DEFAULT_MODEL_ID || model === known.current) return known.speed
+  return known.speeds?.[model] ?? undefined
 }
 
 /**

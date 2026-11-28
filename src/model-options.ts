@@ -55,6 +55,11 @@ export interface CliModelList {
   /** The active model's fast mode. Absent when it has none. */
   readonly speed?: CliSpeedList
   /**
+   * Fast mode by model id, for the models the probe switched to: `null` for a model seen to
+   * have none. A model missing here is unknown, not slow.
+   */
+  readonly speeds?: Readonly<Record<string, CliSpeedList | null>>
+  /**
    * Reasoning levels by model id, for the models seen so far: `null` for a model seen to
    * offer none. Absent when no model has been seen with levels.
    */

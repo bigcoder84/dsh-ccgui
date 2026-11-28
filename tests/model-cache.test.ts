@@ -195,6 +195,21 @@ describe('fast mode in the model cache', () => {
     await expect(new ModelCacheFile(path).read()).resolves.toEqual(new Map([['cli-x', list]]))
   })
 
+  it("keeps each model's fast mode through a save and read back, including models seen to have none", async () => {
+    const path = scratch()
+    const list = { ...LIST, speed: FAST, speeds: { a: FAST, b: null } }
+    await new ModelCacheFile(path).save(new Map([['cli-x', list]]))
+    await expect(new ModelCacheFile(path).read()).resolves.toEqual(new Map([['cli-x', list]]))
+  })
+
+  it("drops a malformed model's fast mode but keeps the rest", () => {
+    const speeds = { a: FAST, b: { configId: 'fast-mode' }, c: null }
+    const text = JSON.stringify({ version: 1, lists: { 'cli-x': { ...LIST, speeds } } })
+    expect(parseModelCache(text).get('cli-x')).toEqual({ ...LIST, speeds: { a: FAST, c: null } })
+    const broken = JSON.stringify({ version: 1, lists: { 'cli-x': { ...LIST, speeds: ['a'] } } })
+    expect(parseModelCache(broken).get('cli-x')).toEqual(LIST)
+  })
+
   it('drops a malformed fast mode but keeps the model list', () => {
     const text = JSON.stringify({ version: 1, lists: { 'cli-x': { ...LIST, speed: { configId: 'fast-mode' } } } })
     expect(parseModelCache(text).get('cli-x')).toEqual(LIST)

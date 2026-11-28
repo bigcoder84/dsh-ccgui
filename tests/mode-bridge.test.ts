@@ -66,6 +66,30 @@ describe('modeRoutes state', () => {
     expect(on('gpt-slow')).not.toHaveProperty('speed')
   })
 
+  // The probe switched to each model, so a session not started yet follows the one it selected.
+  it('shows the fast mode the probe saw on the selected model', () => {
+    const known: CliModelList = {
+      ...KNOWN,
+      options: [...KNOWN.options, { value: 'gpt-fast-2', name: 'GPT Fast 2' }],
+      speeds: { 'gpt-fast': FAST, 'gpt-fast-2': FAST, 'gpt-slow': null },
+    }
+    const on = (model: string) =>
+      setup({ selectedModel: () => model }, () => known).routes.modeState('dsh-1', 'cli-codex')
+    expect(on('gpt-fast-2').speed).toEqual(FAST)
+    expect(on('gpt-slow')).not.toHaveProperty('speed')
+    // A model the probe could not switch to stays unknown.
+    expect(on('gpt-other')).not.toHaveProperty('speed')
+  })
+
+  // Codex may offer a fast tier on another model while its default has none.
+  it('offers a fast mode the default model lacks when the selected model has one', async () => {
+    const known: CliModelList = { ...KNOWN_SLOW, speeds: { 'gpt-slow': null, 'gpt-fast': FAST } }
+    const { deps, routes } = setup({ selectedModel: () => 'gpt-fast' }, () => known)
+    expect(routes.modeState('dsh-1', 'cli-codex').speed).toEqual(FAST)
+    await routes.switchSpeed('dsh-1', 'cli-codex', 'on')
+    expect(deps.registry.switchSpeed).toHaveBeenCalledWith('dsh-1', 'cli-codex', 'on')
+  })
+
   it("prefers the live CLI's own report", () => {
     const live = { ...FAST, current: 'on' }
     const { routes } = setup({ isLive: () => true, speedStateFor: () => ({ speed: live }) })

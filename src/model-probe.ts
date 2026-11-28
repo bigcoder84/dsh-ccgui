@@ -9,6 +9,7 @@ import type { SessionCapabilities } from '@agentclientprotocol/sdk'
 import { abortable } from './abortable.ts'
 import { readModelList } from './model-options.ts'
 import type { CliModelList } from './model-options.ts'
+import { readSpeeds, SPEED_WALK_LIMIT_MS } from './model-speeds.ts'
 import type { AcpTransport, TransportHandlers } from './transport.ts'
 
 const IGNORING_HANDLERS: TransportHandlers = {
@@ -67,19 +68,44 @@ async function cleanUp(
   })
 }
 
-async function askModels(
-  transport: AcpTransport,
-  cwd: string,
-): Promise<{
+interface Asked {
   readonly list: CliModelList | undefined
+  readonly sessionId: string
   readonly discard: (limitMs: number) => Promise<void>
-}> {
+}
+
+async function askModels(transport: AcpTransport, cwd: string): Promise<Asked> {
   const { agentCapabilities } = await transport.initialize()
   const { sessionId, configOptions } = await transport.newSession(cwd)
+  const list = readModelList(configOptions)
+  const capabilities = agentCapabilities?.sessionCapabilities
   return {
-    list: readModelList(configOptions),
-    discard: (limitMs) => discardSession(transport, sessionId, agentCapabilities?.sessionCapabilities, limitMs),
+    list,
+    sessionId,
+    discard: async (limitMs) => {
+      // Put the session back on the model it started on, in case a CLI carries a session's
+      // switch over to its own settings.
+      if (list !== undefined && list.options.length > 1) {
+        await Promise.race([
+          transport.setConfigOption(sessionId, list.configId, list.current).catch(() => {
+            /* the session is removed next either way */
+          }),
+          delay(limitMs, undefined, { ref: false }),
+        ])
+      }
+      await discardSession(transport, sessionId, capabilities, limitMs)
+    },
   }
+}
+
+/** The list with each model's fast mode, learned within its own limit, after the start's. */
+async function withSpeeds(
+  transport: AcpTransport,
+  { list, sessionId }: Asked,
+  limitMs: number,
+): Promise<CliModelList | undefined> {
+  if (list === undefined) return undefined
+  return { ...list, speeds: await readSpeeds(transport, sessionId, list, limitMs) }
 }
 
 /**
@@ -88,7 +114,7 @@ async function askModels(
  * @param cwd - working directory for the temporary session.
  * @param timeoutMs - how long to wait, which must allow for a cold `npx` download.
  * @param signal - stops the CLI at once when the bridge is shutting down.
- * @returns the model list, or undefined when the CLI offers none.
+ * @returns the model list with each model's fast mode, or undefined when the CLI offers none.
  */
 export async function probeModels(
   open: (handlers: TransportHandlers) => AcpTransport,
@@ -104,8 +130,10 @@ export async function probeModels(
   }, timeoutMs)
   const cleanupLimitMs = Math.min(CLEANUP_LIMIT_MS, timeoutMs / 2)
   try {
-    const { list, discard } = await abortable(Promise.race([askModels(transport, cwd), timedOut]), signal)
-    void cleanUp(transport, discard, cleanupLimitMs, signal).catch(() => {
+    const asked = await abortable(Promise.race([askModels(transport, cwd), timedOut]), signal)
+    clearTimeout(timer)
+    const list = await abortable(withSpeeds(transport, asked, Math.min(SPEED_WALK_LIMIT_MS, timeoutMs / 2)), signal)
+    void cleanUp(transport, asked.discard, cleanupLimitMs, signal).catch(() => {
       /* background cleanup; nobody to report to */
     })
     return list

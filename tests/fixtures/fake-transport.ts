@@ -36,6 +36,8 @@ export class FakeTransport implements AcpTransport {
   readonly setConfigCalls: { sessionId: string; configId: string; value: string }[] = []
   setConfigError: Error | undefined
   setConfigResult: readonly SessionConfigOption[] | undefined
+  /** Answers a change by its value, as a CLI reporting the switched-to model's own options. */
+  setConfigAnswer: ((value: string) => Promise<readonly SessionConfigOption[] | undefined>) | undefined
   readonly operations: string[] = []
   readonly deletedSessions: string[] = []
   readonly closedSessions: string[] = []
@@ -82,6 +84,7 @@ export class FakeTransport implements AcpTransport {
   ): Promise<readonly SessionConfigOption[] | undefined> {
     this.operations.push(`set:${value}`)
     this.setConfigCalls.push({ sessionId, configId, value })
+    if (this.setConfigAnswer !== undefined) return this.setConfigAnswer(value)
     return this.setConfigError === undefined
       ? Promise.resolve(this.setConfigResult)
       : Promise.reject(this.setConfigError)
