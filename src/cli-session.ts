@@ -24,6 +24,8 @@ import { nativeReplayState, readNativeSession, unseenUserInput } from './request
 import type { UserInput } from './request-input.ts'
 import { toPromptBlocks } from './prompt-images.ts'
 import { openSession, withinStartTimeout } from './session/connect.ts'
+import { readContextUsage } from './session/context-usage.ts'
+import type { ContextUsage } from './session/context-usage.ts'
 import { driveTool } from './session/drive-tool.ts'
 import type { AskPermission } from './session/drive-tool.ts'
 import { EffortState } from './session/effort-state.ts'
@@ -73,6 +75,8 @@ export class CliSession {
   private disposeRequested = false
   /** This dead session holds user input it can no longer deliver. */
   private owesInput = false
+  /** How full the CLI last said its context is. */
+  private usage: ContextUsage | undefined
   /** Levels the CLI reported, by model, not yet passed on; see `onEfforts`. */
   private heldEfforts: ReadonlyMap<string, CliEffortList | undefined> = new Map()
 
@@ -130,6 +134,11 @@ export class CliSession {
   /** Ids of the user messages this session or its predecessors sent to a CLI. */
   get sentMessageIds(): ReadonlySet<string> {
     return this.seen
+  }
+
+  /** How full the CLI last said its context is; undefined until it says so. */
+  get contextUsage(): ContextUsage | undefined {
+    return this.usage
   }
 
   /** The CLI's own modes, exactly as it last reported them. */
@@ -422,6 +431,11 @@ export class CliSession {
   private handleUpdate(update: SessionUpdate): void {
     if (update.sessionUpdate === 'config_option_update') {
       this.model.observe(update.configOptions)
+      return
+    }
+    // Arrives in a turn or after it; the latest figure that can be shown wins.
+    if (update.sessionUpdate === 'usage_update') {
+      this.usage = readContextUsage(update) ?? this.usage
       return
     }
     // Outside a turn nothing is reading, and stale output would surface in the next

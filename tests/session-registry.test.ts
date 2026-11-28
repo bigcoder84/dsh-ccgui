@@ -549,6 +549,17 @@ describe('fast mode', () => {
 })
 
 // Switching a CLI off stops what it is running; other CLIs carry on.
+describe('contextUsageFor', () => {
+  it("reads a live CLI's context on its own route only", () => {
+    const live = fakeSession({ contextUsage: { used: 40_000, size: 200_000 } })
+    const { registry } = setup({ createSession: () => live })
+    expect(registry.contextUsageFor('dsh-1', 'cli-x')).toBeUndefined()
+    registry.resolveSession('cli-x', 'dsh-1')
+    expect(registry.contextUsageFor('dsh-1', 'cli-x')).toEqual({ used: 40_000, size: 200_000 })
+    expect(registry.contextUsageFor('dsh-1', 'cli-y')).toBeUndefined()
+  })
+})
+
 describe('stopProvider', () => {
   it('stops every session on that CLI and only those, with the reason', () => {
     const agents = new Map([

@@ -23,6 +23,9 @@ import { cliChoices, selectionForChoice } from './choices.ts'
 import { arrangeChoices, createCliPrefs } from './cli-prefs.ts'
 import { createCliSwitchApi } from './cli-switch-api.ts'
 import { createCliSwitches } from './cli-switches.ts'
+import { contextApiFor } from './context-api.ts'
+import { CliContextMeter } from './context-meter.tsx'
+import { CONTEXT_METER_STYLES } from './context-meter-styles.ts'
 import { createLastSelections } from './last-selections.ts'
 import type { LastSelections, LastSelectionsStorage } from './last-selections.ts'
 import type { CliPrefs, CliPrefsStorage } from './cli-prefs.ts'
@@ -109,6 +112,8 @@ const MODEL_SLOT = 'conversation.input.right'
 const MODE_SLOT = 'conversation.input.left'
 /** Right after the switcher, which registers with the default order. */
 const MODE_SEAT_ORDER = 1
+/** Below the composer card, where the harness shows its own context meter for its models. */
+const DOCK_SLOT = 'conversation.composer.dock'
 const SESSION_ROW_SLOT = 'sidebar.session.row.leading'
 /** Keeps the menu last in its slot, which is where the harness's own seat would be. */
 const MODEL_MENU_ORDER = 1000
@@ -165,7 +170,7 @@ const BROWSER_STORAGE: ScriptStorage & FeatureStorage & CliPrefsStorage & Expans
 function installStyles(): () => void {
   const tag = document.createElement('style')
   tag.dataset.plugin = 'dsh-ccgui'
-  tag.textContent = `${STYLES}${MODEL_MENU_STYLES}${TERMINAL_ENTRY_STYLES}${LAUNCH_SCRIPT_STYLES}${SESSION_TREE_STYLES}${SESSION_STATUS_STYLES}${SETTINGS_PAGE_STYLES}${CHANGES_STYLES}${WORKTREE_STYLES}${WORKTREE_GROUP_STYLES}`
+  tag.textContent = `${STYLES}${MODEL_MENU_STYLES}${TERMINAL_ENTRY_STYLES}${LAUNCH_SCRIPT_STYLES}${SESSION_TREE_STYLES}${SESSION_STATUS_STYLES}${SETTINGS_PAGE_STYLES}${CHANGES_STYLES}${WORKTREE_STYLES}${WORKTREE_GROUP_STYLES}${CONTEXT_METER_STYLES}`
   document.head.append(tag)
   return () => {
     tag.remove()
@@ -386,6 +391,28 @@ function registerComposerSlots(ctx: ClientContext, cliPrefs: CliPrefs, lastSelec
 }
 
 /**
+ * Put the CLI session's context meter below the composer, where the harness shows its own. The
+ * harness's meter stays empty on a CLI session, so the two never show together.
+ * @param ctx - the plugin's client context.
+ */
+function registerContextMeter(ctx: ClientContext): void {
+  ctx.slots.inject(DOCK_SLOT, () =>
+    ctx.slots.register(
+      {
+        name: DOCK_SLOT,
+        id: 'dsh-ccgui.context-meter',
+        inject: (sessionId) => ({
+          ...directoryFace(ctx, sessionId),
+          // `window.fetch` needs its receiver, so it is wrapped rather than passed bare.
+          context: contextApiFor((input, init) => window.fetch(input, init), sessionId),
+        }),
+      },
+      CliContextMeter,
+    ),
+  )
+}
+
+/**
  * Put the CLI's own mode beside the switcher. A harness session renders nothing here: its
  * access control keeps the composer's permission seat, and the styles hide that control
  * only while the CLI's mode control shows.
@@ -431,6 +458,7 @@ export function apply(ctx: ClientContext): void {
   const cliPrefs = createCliPrefs(BROWSER_STORAGE)
   registerComposerSlots(ctx, cliPrefs, createLastSelections(BROWSER_STORAGE))
   registerModeSeat(ctx)
+  registerContextMeter(ctx)
   registerSessionMarks(ctx)
   const settings = createFeatureSettings(BROWSER_STORAGE)
   // window.fetch needs its receiver, so it is wrapped rather than passed bare.

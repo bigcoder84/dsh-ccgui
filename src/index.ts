@@ -23,6 +23,7 @@ import { CliBridgeAdapter } from './adapter.ts'
 import { AtomicFile } from './atomic-file.ts'
 import { CliSwitchBridge } from './cli-switch-bridge.ts'
 import { registerCliSwitchRoute } from './cli-switch-routes.ts'
+import { registerContextRoute } from './context-route.ts'
 import { CliSwitches, formatSwitches, parseSwitches } from './cli-switches.ts'
 import { readDefaultModel } from './default-fallback.ts'
 import { CliSession } from './cli-session.ts'
@@ -251,6 +252,15 @@ export default class CliBridge extends Service {
       child.effect(
         () => registerCliSwitchRoute(child.webServer, this.switches, child.connection, (m) => child.logger.warn(m)),
         'ccgui: CLI switch route',
+      )
+      child.effect(
+        () =>
+          registerContextRoute(
+            child.webServer,
+            { usageFor: (sessionId, provider) => this.registry.contextUsageFor(sessionId, provider) },
+            child.connection,
+          ),
+        'ccgui: context route',
       )
     })
   }

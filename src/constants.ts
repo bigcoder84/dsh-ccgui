@@ -70,3 +70,6 @@ export const FAST_MODE_OFF = 'off'
  * switch, and switches one on or off.
  */
 export const CLI_SWITCH_ROUTE = '/dsh-ccgui/clis'
+
+/** The route the composer's context meter reads: how full a CLI session says its context is. */
+export const CONTEXT_ROUTE = '/dsh-ccgui/context'

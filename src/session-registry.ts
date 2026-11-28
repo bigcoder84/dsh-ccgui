@@ -12,6 +12,7 @@ import type { ApprovalOutcome } from '@deepseek-ai/dsh-user-approval'
 import type { CliSession, PermissionAsk } from './cli-session.ts'
 import { CLI_TOOL_NAME, cliRoute, DEFAULT_MODEL_ID } from './constants.ts'
 import type { CliChoiceList, CliModeList, CliSpeedList } from './model-options.ts'
+import type { ContextUsage } from './session/context-usage.ts'
 import type { PtcWrap } from './session/ptc-call.ts'
 import type { ToolOutcome } from './tool-record.ts'
 
@@ -203,6 +204,17 @@ export class CliSessionRegistry {
    */
   selectedModel(sessionId: string): string | undefined {
     return this.deps.getAgent(sessionId)?.model.current()?.model
+  }
+
+  /**
+   * Read how full a session's CLI says its context is.
+   * @param sessionId - the harness session.
+   * @param provider - the CLI route the composer is showing.
+   * @returns the figures, or undefined while that CLI has reported none.
+   */
+  contextUsageFor(sessionId: string, provider: string): ContextUsage | undefined {
+    const live = this.sessions.get(sessionId)
+    return live?.provider === provider ? live.session.contextUsage : undefined
   }
 
   /**

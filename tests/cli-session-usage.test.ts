@@ -48,3 +48,29 @@ describe('CliSession token usage', () => {
     expect(second.at(-1)).toEqual(expect.objectContaining({ type: 'finish' }))
   })
 })
+
+// ACP's usage_update says how full the context is; the composer shows it on its own meter.
+describe('CliSession context usage', () => {
+  it('keeps the latest context the CLI reports, in a turn or out of one', async () => {
+    const { fake, session } = setup((t) => {
+      t.update({ sessionUpdate: 'usage_update', used: 40_000, size: 200_000 })
+      t.update(text('ok'))
+      return 'end_turn'
+    })
+    expect(session.contextUsage).toBeUndefined()
+    await collect(session.stream({ messages: [user('1', 'hi')] }))
+    expect(session.contextUsage).toEqual({ used: 40_000, size: 200_000 })
+    fake.update({ sessionUpdate: 'usage_update', used: 52_000, size: 200_000 })
+    expect(session.contextUsage).toEqual({ used: 52_000, size: 200_000 })
+  })
+
+  it('keeps the last good report over one it cannot show', async () => {
+    const { fake, session } = setup((t) => {
+      t.update({ sessionUpdate: 'usage_update', used: 40_000, size: 200_000 })
+      return 'end_turn'
+    })
+    await collect(session.stream({ messages: [user('1', 'hi')] }))
+    fake.update({ sessionUpdate: 'usage_update', used: 1, size: 0 })
+    expect(session.contextUsage).toEqual({ used: 40_000, size: 200_000 })
+  })
+})
