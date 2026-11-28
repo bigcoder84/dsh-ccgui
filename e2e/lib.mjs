@@ -40,6 +40,8 @@ async function dismissDialogs(page) {
  * Open the UI and return the helpers scenarios use.
  * @returns the page, its helpers, and a reporter.
  */
+const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
 export async function openHarness() {
   const browser = await launch()
   const context = await browser.newContext({ viewport: { width: 1360, height: 900 }, locale: 'zh-CN' })
@@ -79,70 +81,96 @@ export async function openHarness() {
     await sleep(500)
   }
 
-  const cliSwitcher = () => page.getByRole('button', { name: '切换 CLI' })
+  // The model picker: one button in the composer, one popover with the provider tabs, the
+  // model rows, the reasoning slider and the provider's own setting.
+  const modelTrigger = () => page.getByRole('button', { name: /^选择模型和思考深度/ }).last()
+  const pickerPopover = () => page.getByRole('dialog', { name: '选择模型和思考深度' })
+  const pickerTab = (name) => pickerPopover().getByRole('tab', { name, exact: true })
+  const rowNamed = (name) =>
+    pickerPopover()
+      .getByRole('menuitemradio')
+      .filter({ has: page.locator('.dsh-cli-picker-row-name', { hasText: new RegExp(`^${escapeRegExp(name)}$`) }) })
 
-  /** Put the open session on a CLI with the composer's switcher. */
-  async function chooseCli(name) {
-    await until(() => cliSwitcher().isVisible(), 'CLI switcher')
-    if ((await cliSwitcher().innerText()).trim() === name) return
-    await cliSwitcher().click()
-    await sleep(300)
-    await page
-      .getByRole('menuitem', { name, exact: true })
-      .or(page.getByRole('menuitemradio', { name, exact: true }))
-      .first()
-      .click()
-    await until(async () => (await cliSwitcher().innerText()).trim() === name, `switcher showing ${name}`)
+  async function openPicker() {
+    if (
+      await pickerPopover()
+        .isVisible()
+        .catch(() => false)
+    )
+      return
+    await until(() => modelTrigger().isVisible(), 'model picker')
+    await modelTrigger().click()
+    await pickerPopover().waitFor({ timeout: 10_000 })
+    await sleep(200)
   }
 
-  /** Start a standard session and put it on a CLI with the composer's switcher. */
-  async function newCliSession(name) {
-    await newSession('标准模式')
-    await chooseCli(name)
-  }
-
-  const modelTrigger = () => page.getByRole('button', { name: /^(选择模型|请选择模型)/ }).last()
-
-  /** Escape only steps back a level in this menu, so repeat until it has closed. */
-  async function closeModelMenu() {
-    for (let i = 0; i < 3 && (await modelTrigger().getAttribute('aria-expanded')) === 'true'; i += 1) {
+  async function closePicker() {
+    for (
+      let i = 0;
+      i < 3 &&
+      (await pickerPopover()
+        .isVisible()
+        .catch(() => false));
+      i += 1
+    ) {
       await page.keyboard.press('Escape')
       await sleep(250)
     }
   }
 
-  async function openModelList() {
-    await closeModelMenu()
-    await modelTrigger().click()
-    await sleep(300)
-    const drill = page.getByRole('menuitem', { name: /^模型/ }).first()
-    if (await drill.isVisible().catch(() => false)) await drill.click()
-    await page.getByRole('menuitemradio').first().waitFor({ timeout: 10_000 })
-    await sleep(300)
+  /** The provider tab the open session is on. */
+  async function currentTab() {
+    await openPicker()
+    const label = await pickerPopover().getByRole('tab', { selected: true }).getAttribute('aria-label')
+    await closePicker()
+    return label
   }
 
-  /** Read the names a CLI's group lists. */
-  async function modelNames(cli) {
-    await openModelList()
-    const names = await page
-      .getByRole('group', { name: cli, exact: true })
-      .getByRole('menuitemradio')
-      .evaluateAll((rows) => rows.map((row) => row.getAttribute('title')))
-    await closeModelMenu()
-    return names
+  /** Put the open session on a CLI with the picker's provider tabs. */
+  async function chooseCli(name) {
+    await openPicker()
+    if ((await pickerTab(name).getAttribute('aria-selected')) !== 'true') await pickerTab(name).click()
+    await until(async () => (await pickerTab(name).getAttribute('aria-selected')) === 'true', `picker on ${name}`)
+    await closePicker()
   }
+
+  /** Start a standard session and put it on a CLI with the picker. */
+  async function newCliSession(name) {
+    await newSession('标准模式')
+    await chooseCli(name)
+  }
+
+  /** Read the rows the picker lists for a CLI, by name; the session must be on that CLI. */
+  async function modelRows(cli) {
+    await openPicker()
+    const selected = await pickerPopover().getByRole('tab', { selected: true }).getAttribute('aria-label')
+    if (selected !== cli) throw new Error(`the picker is on ${selected}, not ${cli}`)
+    const rows = await pickerPopover()
+      .getByRole('menuitemradio')
+      .evaluateAll((items) =>
+        items
+          .filter((item) => item.closest('[aria-label="CLI 模式"]') === null)
+          .map((item) => ({
+            id: item.getAttribute('data-model-id'),
+            name: item.querySelector('.dsh-cli-picker-row-name')?.textContent ?? '',
+          })),
+      )
+    await closePicker()
+    return rows
+  }
+
+  /** Read the names a CLI's list shows. */
+  const modelNames = async (cli) => (await modelRows(cli)).map((row) => row.name)
 
   /** Pick a model, waiting for the list because a CLI reports it after starting up. */
   async function chooseModel(cli, name, timeout = 180_000) {
+    if ((await currentTab()) !== cli) await chooseCli(cli)
     await until(async () => (await modelNames(cli)).includes(name), `model ${name}`, timeout)
-    await openModelList()
-    // A row's accessible name also contains the small print beside its name (a CLI's
-    // cost multiplier), so match on the title: the same name modelNames() reports.
-    await page
-      .getByRole('group', { name: cli, exact: true })
-      .locator(`[role="menuitemradio"][title=${JSON.stringify(name)}]`)
-      .click()
-    await sleep(500)
+    await openPicker()
+    await rowNamed(name).click()
+    // The picker stays open for the slider, so close it once the trigger names the model.
+    await until(async () => ((await modelTrigger().textContent()) ?? '').includes(name), `trigger naming ${name}`)
+    await closePicker()
   }
 
   /** Reopen a session from the sidebar, which unfolds a few older ones per click. */
@@ -212,8 +240,14 @@ export async function openHarness() {
     newSession,
     newCliSession,
     chooseCli,
-    cliSwitcher,
     modelTrigger,
+    pickerPopover,
+    pickerTab,
+    rowNamed,
+    openPicker,
+    closePicker,
+    currentTab,
+    modelRows,
     modelNames,
     chooseModel,
     openSession,

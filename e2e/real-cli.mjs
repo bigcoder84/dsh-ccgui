@@ -10,7 +10,7 @@ import { join } from 'node:path'
 import { cliId, fileFor, writePrompt } from './cli-prompts.mjs'
 import { openHarness, sessionEvents, turnEnds, WORKSPACE } from './lib.mjs'
 
-const { page, sleep, bodyText, until, newCliSession, modelNames, chooseModel, send, scenario, finish } =
+const { page, sleep, bodyText, until, newCliSession, modelNames, modelRows, chooseModel, send, scenario, finish } =
   await openHarness()
 const CLI = process.env.E2E_CLI
 const MODEL = process.env.E2E_MODEL
@@ -68,12 +68,19 @@ async function startOnCli() {
 
 let askedPermission = false
 
-await step('models', `${CLI} models: the menu lists real models`, async () => {
+await step('models', `${CLI} models: the picker lists real models`, async () => {
   await newCliSession(CLI)
   await until(async () => (await modelNames(CLI)).length > 1, 'real model rows', MODEL_TIMEOUT)
-  const names = await modelNames(CLI)
-  if (!names[0].endsWith('（默认）')) throw new Error(`no named default: ${names.slice(0, 3).join()}`)
-  console.log(`  ${CLI}: ${names.length} rows, default ${names[0]}`)
+  const rows = await modelRows(CLI)
+  // The row standing for the CLI's own setting comes first.
+  if (rows[0]?.id !== 'default')
+    throw new Error(
+      `no default first: ${rows
+        .slice(0, 3)
+        .map((row) => row.id)
+        .join()}`,
+    )
+  console.log(`  ${CLI}: ${rows.length} rows, default ${rows[0].name}`)
 })
 
 await step('write', `${CLI} write: the file appears and the card shows it`, async () => {

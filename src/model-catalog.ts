@@ -8,7 +8,7 @@
  */
 
 import type { LlmModelInfo, LlmModelReasoningInfo } from '@deepseek-ai/dsh-llm'
-import { DEFAULT_MODEL_ID } from './constants.ts'
+import { DEFAULT_MODEL_ID, DEFAULT_MODEL_SUFFIX } from './constants.ts'
 import { learnEfforts, reasoningFor } from './model-efforts.ts'
 import { olderVersions } from './model-versions.ts'
 import type { CliEffortList, CliModeList, CliModelList, CliModelOption } from './model-options.ts'
@@ -238,6 +238,6 @@ export class CliModelCatalog {
   }
 
   private defaultName(list: CliModelList): string {
-    return `${nameOf(list, list.current)}（默认）`
+    return `${nameOf(list, list.current)}${DEFAULT_MODEL_SUFFIX}`
   }
 }

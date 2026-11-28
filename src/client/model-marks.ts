@@ -1,5 +1,5 @@
 /**
- * Which vendor mark a model row shows in the model menu. A CLI such as OpenCode lists
+ * Which vendor mark a model row shows in the model picker. A CLI such as OpenCode lists
  * models from many vendors under one provider, so the mark is read from the model itself
  * and the provider's own mark is only the fallback.
  * @module dsh-ccgui/client/model-marks

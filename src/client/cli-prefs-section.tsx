@@ -18,7 +18,8 @@ import type { CliSwitches } from './cli-switches.ts'
 import { ProviderMark } from './marks.tsx'
 import { useStore } from './store.ts'
 
-const SECTION_INTRO = '输入框 CLI 切换菜单里的顺序，以及启用哪些 CLI。关闭的 CLI 不再作为提供方出现在 DSH 的任何地方。'
+const SECTION_INTRO =
+  '输入框模型选择器里提供方标签的顺序，以及启用哪些 CLI。关闭的 CLI 不再作为提供方出现在 DSH 的任何地方。'
 const EMPTY_HINT = '正在读取 CLI 列表…'
 const OFF_HINT = '已关闭，不作为提供方出现'
 const LOCKED_HINT = '内置提供方，始终显示'

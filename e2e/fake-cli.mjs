@@ -13,8 +13,12 @@ const {
   newSession,
   newCliSession,
   chooseCli,
-  cliSwitcher,
   modelTrigger,
+  pickerPopover,
+  pickerTab,
+  openPicker,
+  closePicker,
+  modelRows,
   modelNames,
   chooseModel,
   send,
@@ -32,11 +36,22 @@ const harnessSeatDisplays = () =>
   page
     .locator('[data-slot="conversation.input.model"]')
     .evaluateAll((nodes) => nodes.map((node) => getComputedStyle(node).display))
-// The composer's own control for the CLI's native modes, beside the model and its level.
-const modeTrigger = () => page.getByRole('button', { name: /^CLI 模式，当前/ })
-// Codex's fast mode, which the fake CLI offers on its default model only.
-const speedToggle = () => page.getByRole('button', { name: /^快速模式，/ })
+// The CLI's native modes, the last row of the model picker; open the picker first.
+const modeRow = () => pickerPopover().getByRole('button', { name: /^CLI 模式/ })
+const modeOption = (name) =>
+  pickerPopover().getByRole('menu', { name: 'CLI 模式' }).getByRole('menuitemradio', { name })
+// Codex's fast mode, the bolt beside the reasoning level, which the fake CLI offers on its
+// default model only; open the picker first.
+const speedToggle = () => pickerPopover().getByRole('button', { name: /^(开启快速模式|快速模式已开启)/ })
 const speedPressed = async () => (await speedToggle().getAttribute('aria-pressed')) === 'true'
+const PENDING = '下一条消息发送时生效'
+/** Read an attribute of something in the picker, opening it and closing it again. */
+async function inPicker(read) {
+  await openPicker()
+  const value = await read()
+  await closePicker()
+  return value
+}
 
 /** Switch the harness's access mode, confirming 完全权限's own risk dialog. */
 async function setAccessMode(name) {
@@ -82,42 +97,22 @@ await scenario('lazy: opening the app starts no CLI', async () => {
   if (running !== '') throw new Error(`already running: ${running}`)
 })
 
-// The harness's own model seat carries settings such as the agent-team toggle, so a session
-// it runs keeps that seat and its native menu. Only a CLI session replaces it.
-await scenario('seat: a harness session keeps its native model control', async () => {
-  if ((await page.locator('.dsh-cli-model').count()) !== 0) throw new Error("the plugin's control replaced the seat")
+// The picker takes the harness's own model seat on every session, the harness's included:
+// there it lists the harness's providers and carries the agent-team switch.
+await scenario('seat: a harness session gets the picker in place of the native model control', async () => {
   const seats = await harnessSeatDisplays()
-  if (seats.length === 0 || seats.some((display) => display === 'none'))
-    throw new Error(`harness seat hidden or missing: ${seats.join()}`)
-  await shot('native-model-seat')
-  // The native seat reads one global catalog, so it also lists CLIs a session it runs cannot
-  // move to. Only those groups may be hidden; its own providers and settings stay put.
-  await page.locator('[data-slot="conversation.input.model"] button').first().click()
-  await sleep(400)
-  const visibleCliGroups = await page
-    .locator('section[data-menu-group]:has([data-provider-id^="cli-"])')
-    .evaluateAll((nodes) => nodes.filter((node) => getComputedStyle(node).display !== 'none').length)
-  if (visibleCliGroups !== 0) throw new Error(`${visibleCliGroups} CLI groups still listed in the native menu`)
-  // This home signs in to no provider, so plant one to prove the filter stops at the CLIs.
-  await page.evaluate(() => {
-    const menu = document.querySelector('[role="menu"][aria-label="模型"]')
-    const section = document.createElement('section')
-    section.id = 'harness-provider-probe'
-    section.setAttribute('data-menu-group', '')
-    section.innerHTML =
-      '<button type="button" role="menuitemradio"><span data-provider-id="deepseek-account">DeepSeek-V4.1-Flash</span></button>'
-    menu?.append(section)
-  })
-  const probeDisplay = await page.locator('#harness-provider-probe').evaluate((node) => getComputedStyle(node).display)
-  if (probeDisplay === 'none') throw new Error('a harness provider was hidden along with the CLIs')
-  await shot('native-model-seat-filtered')
-  await page.keyboard.press('Escape')
-  await sleep(250)
-  // This session is the harness's own, so the access control keeps the composer's seat
-  // and the CLI's mode control stays out of it.
+  if (!seats.every((display) => display === 'none')) throw new Error(`harness seat: ${seats.join()}`)
+  if ((await page.getByRole('button', { name: /^选择模型和思考深度/ }).count()) !== 1)
+    throw new Error('not exactly one model control')
+  await openPicker()
+  if ((await pickerTab('DeepSeek').getAttribute('aria-selected')) !== 'true') throw new Error('not on the harness tab')
+  if ((await pickerTab(FAKE).count()) !== 1) throw new Error('the CLI has no tab')
+  await shot('picker-harness')
+  await closePicker()
+  // This session is the harness's own, so the access control keeps the composer's seat.
   if ((await page.getByRole('button', { name: /^访问模式/ }).count()) === 0) throw new Error('no access control')
-  if ((await page.locator('.dsh-cli-mode-seat').count()) !== 0)
-    throw new Error('a CLI mode control on a harness session')
+  if ((await modelTrigger().getAttribute('data-cli-modes')) !== null)
+    throw new Error('a harness session claims the access control seat')
 })
 
 // The access mode is DSH's stance for sessions it runs. A CLI decides for itself whether to
@@ -238,107 +233,88 @@ await scenario('setup: leave a session whose last turn failed', async () => {
   await idle(FAILED_PROMPT)
 })
 
-// The CLI's mode belongs to that CLI, so it reads next to the switcher — and the harness's
-// access control, which would answer for a session the harness runs, steps out of the row.
-await scenario('position: the mode sits between the + button, the CLI and the model', async () => {
+// The CLI's mode now lives in the picker, so the harness's access control, which would
+// answer for a session the harness runs, steps out of the row once the CLI reports modes.
+await scenario('position: the picker sits after the + button, and the access control steps aside', async () => {
   await newCliSession(FAKE)
   const left = (await page.getByRole('button', { name: '添加文件或调用指令' }).last().boundingBox())?.x
-  const switcher = await cliSwitcher().boundingBox()
-  const mode = await page.locator('.dsh-cli-mode-seat').boundingBox()
-  const model = await modelTrigger().boundingBox()
-  await shot('switcher')
-  if (!(left < switcher.x && switcher.x < mode.x && mode.x < model.x))
-    throw new Error(`order: + ${left}, switcher ${switcher.x}, mode ${mode.x}, model ${model.x}`)
+  const picker = await modelTrigger().boundingBox()
+  if (!(left < picker.x)) throw new Error(`order: + ${left}, picker ${picker.x}`)
+  await until(async () => (await modelTrigger().getAttribute('data-cli-modes')) !== null, 'the CLI modes', 30_000)
+  await shot('picker-trigger')
   const access = await page.getByRole('button', { name: /^访问模式/ }).count()
   if (access !== 0) throw new Error('the access control is still in the row')
 })
 
-// The default row stands for Fake Small, so Fake Small gets no second row of its own.
-await scenario('models: the menu shows what the CLI reports, naming its default', async () => {
+// The default row stands for Fake Small, so Fake Small gets no second row of its own. The
+// row comes first and the picker shows it without the catalog's 「（默认）」.
+await scenario('models: the picker shows what the CLI reports, its own setting first', async () => {
   await newCliSession(FAKE)
   await until(async () => (await modelNames(FAKE)).length === 2, 'two model rows', 30_000)
-  const names = await modelNames(FAKE)
-  if (names.join() !== 'Fake Small（默认）,Fake Large') throw new Error(`rows: ${names.join()}`)
+  const rows = await modelRows(FAKE)
+  const shown = rows.map(({ id, name }) => `${id}:${name}`).join()
+  if (shown !== 'default:Fake Small,fake-large:Fake Large') throw new Error(`rows: ${shown}`)
 })
 
-await scenario("flat menu: one click shows only this CLI's models, with no second level", async () => {
-  await modelTrigger().click()
-  await sleep(300)
-  const names = await page
-    .getByRole('menuitemradio')
-    .evaluateAll((rows) => rows.map((row) => row.getAttribute('title')))
-  if (names.join() !== 'Fake Small（默认）,Fake Large') throw new Error(`rows: ${names.join()}`)
-  if (
-    await page
-      .getByRole('menuitem', { name: /^模型/ })
-      .isVisible()
-      .catch(() => false)
-  )
-    throw new Error('still has a second level')
-  await shot('model-menu')
+await scenario("picker: one click shows this CLI's models and its own setting, and Escape closes it", async () => {
+  await openPicker()
+  if ((await modeRow().count()) !== 1) throw new Error('no CLI mode row')
+  await shot('model-picker')
   await page.keyboard.press('Escape')
   await sleep(250)
-  if ((await modelTrigger().getAttribute('aria-expanded')) === 'true') throw new Error('Escape left the menu open')
+  if (await pickerPopover().isVisible()) throw new Error('Escape left the picker open')
 })
 
 // A CLI's own logo names the CLI, not the maker of every model it happens to list.
 await scenario('model marks: an unidentifiable model gets a neutral mark, never a brand', async () => {
-  await modelTrigger().click()
-  await sleep(300)
-  const marks = await page
-    .getByRole('menuitemradio')
-    .evaluateAll((rows) => rows.map((row) => row.querySelector('[data-cli-mark]')?.getAttribute('data-cli-mark')))
+  const marks = await inPicker(() =>
+    pickerPopover()
+      .getByRole('menu', { name: '模型' })
+      .getByRole('menuitemradio')
+      .evaluateAll((rows) => rows.map((row) => row.querySelector('[data-cli-mark]')?.getAttribute('data-cli-mark'))),
+  )
   if (marks.join() !== 'unknown,unknown') throw new Error(`model marks: ${marks.join()}`)
-  await page.keyboard.press('Escape')
-  await sleep(250)
 })
 
-await scenario("flat menu: the harness's control is out of the row", async () => {
-  const seats = await harnessSeatDisplays()
-  if (!seats.every((display) => display === 'none')) throw new Error(`harness seat: ${seats.join()}`)
-  if ((await page.getByRole('button', { name: /^(选择模型|请选择模型)/ }).count()) !== 1)
-    throw new Error('more than one model control')
-})
-
-await scenario('flat menu: arrows move, Enter settles, and the trigger takes the name', async () => {
-  await modelTrigger().click()
-  await sleep(300)
-  await page.keyboard.press('ArrowDown')
+await scenario('picker: the search takes the keys, and Enter picks the first match', async () => {
+  await openPicker()
+  await page.keyboard.type('Large')
   await page.keyboard.press('Enter')
-  await until(async () => (await modelTrigger().getAttribute('title')) === 'Fake Large', 'trigger naming Fake Large')
-  // The row settles first and the menu closes on the next tick, so wait for both.
-  await until(async () => (await modelTrigger().getAttribute('aria-expanded')) !== 'true', 'the menu to close')
-  await chooseModel(FAKE, 'Fake Small（默认）')
+  await until(
+    async () => ((await modelTrigger().textContent()) ?? '').includes('Fake Large'),
+    'trigger naming Fake Large',
+  )
+  // The picker stays open for the slider and the bolt.
+  if (!(await pickerPopover().isVisible())) throw new Error('choosing a model closed the picker')
+  await closePicker()
+  await chooseModel(FAKE, 'Fake Small')
 })
 
-await scenario('flat menu: a press elsewhere closes it', async () => {
-  await modelTrigger().click()
-  await sleep(300)
+await scenario('picker: a press elsewhere closes it', async () => {
+  await openPicker()
   await page.mouse.click(5, 5)
   await sleep(250)
-  if ((await page.getByRole('menuitemradio').count()) !== 0) throw new Error('list still open')
+  if (await pickerPopover().isVisible()) throw new Error('picker still open')
 })
 
-await scenario('flat menu: a press inside it keeps it open', async () => {
-  await modelTrigger().click()
-  await sleep(300)
-  // The padding beside the rows, halfway up: a corner of the box is outside the rounded card.
-  const card = await page.locator('.dsh-cli-model-menu').boundingBox()
-  const x = card.x + 2
-  const y = card.y + card.height / 2
+await scenario('picker: a press inside it keeps it open', async () => {
+  await openPicker()
+  // The empty end of the tab row: inside the popover, on no control.
+  const box = await pickerPopover().boundingBox()
+  const x = box.x + box.width - 12
+  const y = box.y + 12
   const onCard = await page.evaluate(
     ([px, py]) => {
       const hit = document.elementFromPoint(px, py)
-      return hit?.closest('.dsh-cli-model-menu') !== null && hit?.closest('button') === null
+      return hit?.closest('[role="dialog"]') !== null && hit?.closest('button') === null
     },
     [x, y],
   )
-  if (!onCard) throw new Error("the press would miss the card's padding")
+  if (!onCard) throw new Error('the press would miss the popover')
   await page.mouse.click(x, y)
   await sleep(250)
-  if ((await page.getByRole('menuitemradio').count()) === 0) throw new Error('the press closed the list')
-  await page.keyboard.press('Escape')
-  await sleep(250)
+  if (!(await pickerPopover().isVisible())) throw new Error('the press closed the picker')
+  await closePicker()
 })
 
 await scenario('model switch: the chosen model reaches the CLI before the prompt', async () => {
@@ -350,7 +326,7 @@ await scenario('model switch: the chosen model reaches the CLI before the prompt
 })
 
 await scenario('model switch mid-session: the next message runs on the new model', async () => {
-  await chooseModel(FAKE, 'Fake Small（默认）')
+  await chooseModel(FAKE, 'Fake Small')
   await send('WHICH MODEL')
   await untilText('model=fake-small')
 })
@@ -386,97 +362,105 @@ await scenario('refusal: a telemetry dump falls back to the plain failure', asyn
 })
 
 await scenario('locked: a started session keeps its CLI, and says how to change', async () => {
-  if (!(await cliSwitcher().isDisabled())) throw new Error('switcher still enabled after the session started')
-  const title = await cliSwitcher().getAttribute('title')
+  const [disabled, title] = await inPicker(async () => [
+    await pickerTab('DeepSeek').isDisabled(),
+    await pickerTab('DeepSeek').getAttribute('title'),
+  ])
+  if (!disabled) throw new Error('other providers still enabled after the session started')
   if (!title.includes('新建会话')) throw new Error(`hint: ${title}`)
 })
 
-// The CLI's modes are its own: the control shows the names it reported and sends the id back.
+// The CLI's modes are its own: the picker shows the names it reported and sends the id back.
 await scenario('mode: the CLI lists its own modes, and a pick made before it runs waits', async () => {
   await newCliSession(FAKE)
-  await until(async () => (await modeTrigger().count()) > 0, 'the CLI mode control', 30_000)
-  const label = await modeTrigger().getAttribute('aria-label')
-  if (label !== 'CLI 模式，当前 Default') throw new Error(`label: ${label}`)
-  await modeTrigger().click()
-  await sleep(300)
-  const rows = await page.getByRole('menuitem').evaluateAll((nodes) => nodes.map((node) => node.textContent))
+  await until(() => inPicker(async () => (await modeRow().count()) > 0), 'the CLI mode row', 30_000)
+  await openPicker()
+  const label = await modeRow().textContent()
+  if (!label.includes('Default')) throw new Error(`row: ${label}`)
+  await modeRow().click()
+  const rows = await pickerPopover()
+    .getByRole('menu', { name: 'CLI 模式' })
+    .getByRole('menuitemradio')
+    .evaluateAll((nodes) => nodes.map((node) => node.textContent))
   if (rows.join() !== 'Default,Plan') throw new Error(`rows: ${rows.join()}`)
-  await page.getByRole('menuitem', { name: 'Plan', exact: true }).click()
-  await sleep(300)
+  await modeOption('Plan').click()
   // Nothing to change before the CLI session exists, so the pick says when it will apply.
-  const pending = await modeTrigger().getAttribute('title')
-  if (pending === null || !pending.includes('下一条消息发送时生效')) throw new Error(`pending hint: ${pending}`)
+  await until(async () => ((await modeRow().getAttribute('title')) ?? '').includes(PENDING), 'the pending hint')
+  await closePicker()
   await send('WHICH MODE')
   await untilText('mode=plan')
   await idle('WHICH MODE')
-  await until(async () => {
-    const title = await modeTrigger().getAttribute('title')
-    return title !== null && !title.includes('下一条消息发送时生效')
-  }, 'the pick to be confirmed')
+  await until(
+    () => inPicker(async () => !((await modeRow().getAttribute('title')) ?? '').includes(PENDING)),
+    'the pick to be confirmed',
+  )
 })
 
 await scenario('mode switch mid-session: the live CLI changes before the next prompt', async () => {
-  await modeTrigger().click()
-  await sleep(300)
-  await page.getByRole('menuitem', { name: 'Default', exact: true }).click()
+  await openPicker()
+  await modeRow().click()
+  await modeOption('Default').click()
   await sleep(500)
-  const title = await modeTrigger().getAttribute('title')
-  if (title === null || title.includes('下一条消息发送时生效')) throw new Error('a running CLI should apply at once')
+  const title = (await modeRow().getAttribute('title')) ?? ''
+  if (title.includes(PENDING)) throw new Error('a running CLI should apply at once')
+  await closePicker()
   await send('WHICH MODE')
   await untilText('mode=default')
 })
 
-// The toggle sends the CLI's own on/off; picked before the CLI runs, it waits for the first turn.
+// The bolt sends the CLI's own on/off; picked before the CLI runs, it waits for the first turn.
 await scenario('fast mode: a pick made before the CLI runs reaches its first turn', async () => {
   await newCliSession(FAKE)
-  await until(async () => (await speedToggle().count()) > 0, 'the fast-mode toggle', 30_000)
+  await until(() => inPicker(async () => (await speedToggle().count()) > 0), 'the fast-mode bolt', 30_000)
+  await openPicker()
   if (await speedPressed()) throw new Error('fast mode should start off')
   await speedToggle().click()
-  await until(speedPressed, 'the toggle to show the pick')
-  const pending = await speedToggle().getAttribute('title')
-  if (pending === null || !pending.includes('下一条消息发送时生效')) throw new Error(`pending hint: ${pending}`)
+  await until(speedPressed, 'the bolt to show the pick')
+  const pending = (await speedToggle().getAttribute('title')) ?? ''
+  if (!pending.includes(PENDING)) throw new Error(`pending hint: ${pending}`)
   await shot('fast-mode-pending')
+  await closePicker()
+  // The button keeps the CLI's mark and adds the bolt after the level.
+  if ((await modelTrigger().locator('[data-cli-mark]').count()) !== 1) throw new Error('the mark left the button')
   await send('WHICH SPEED')
   await untilText('fast=on')
   await idle('WHICH SPEED')
-  await until(async () => {
-    const title = await speedToggle().getAttribute('title')
-    return title !== null && !title.includes('下一条消息发送时生效')
-  }, 'the pick to be confirmed')
+  await until(
+    () => inPicker(async () => !((await speedToggle().getAttribute('title')) ?? '').includes(PENDING)),
+    'the pick to be confirmed',
+  )
 })
 
 // Fast mode belongs to the model: once a turn has moved the CLI to one without a fast tier,
-// the toggle goes, and the turn ran at normal speed.
-await scenario('fast mode: a model without a fast tier takes the toggle away', async () => {
+// the bolt goes, and the turn ran at normal speed.
+await scenario('fast mode: a model without a fast tier takes the bolt away', async () => {
   await chooseModel(FAKE, 'Fake Large')
   await send('WHICH SPEED')
   await untilText('fast=off')
   await idle('WHICH SPEED', 2)
-  await until(async () => (await speedToggle().count()) === 0, 'the toggle to go')
+  await until(() => inPicker(async () => (await speedToggle().count()) === 0), 'the bolt to go')
 })
 
 // A PTC session runs the CLI through run_code; nothing refuses a CLI outright any more.
 await scenario('PTC: a CLI turn runs in a PTC session', async () => {
   await newSession('PTC')
-  await chooseModel(FAKE, 'Fake Small（默认）')
+  await chooseModel(FAKE, 'Fake Small')
   await send('ptc echo')
   await untilText('echo: ptc echo')
   await idle('ptc echo')
   await shot('ptc-session')
 })
 
-await scenario('marks: the switcher, its menu and the session list say which CLI is which', async () => {
+await scenario('marks: the picker, its tabs and the session list say which CLI is which', async () => {
   await newCliSession(FAKE)
-  if ((await cliSwitcher().locator('[data-cli-mark]').count()) !== 1) throw new Error('no mark on the switcher')
-  await cliSwitcher().click()
-  await sleep(300)
-  const marks = await page
-    .locator('[data-cli-mark]:visible')
-    .evaluateAll((nodes) => nodes.map((node) => node.getAttribute('data-cli-mark')))
-  await page.keyboard.press('Escape')
-  await sleep(300)
+  if ((await modelTrigger().locator('[data-cli-mark]').count()) !== 1) throw new Error('no mark on the picker')
+  const marks = await inPicker(() =>
+    pickerPopover()
+      .getByRole('tab')
+      .evaluateAll((tabs) => tabs.map((tab) => tab.querySelector('[data-cli-mark]')?.getAttribute('data-cli-mark'))),
+  )
   for (const mark of ['opencode', 'omp', 'codex', 'pi']) {
-    if (!marks.includes(mark)) throw new Error(`menu lacks ${mark}: ${marks.join()}`)
+    if (!marks.includes(mark)) throw new Error(`tabs lack ${mark}: ${marks.join()}`)
   }
   await send('MARKED ROW')
   await untilText('echo: MARKED ROW')
@@ -629,7 +613,7 @@ await scenario('settings: switching a feature off restores the harness interacti
   await until(() => terminalButton.isVisible(), 'terminal button back in the header')
 })
 
-await scenario('settings: the CLI list orders the switcher and hides what is switched off', async () => {
+await scenario('settings: the CLI list orders the picker tabs and hides what is switched off', async () => {
   const missingSwitch = page.getByRole('switch', { name: '启用 Missing CLI' })
   const rows = () =>
     page.locator('.dsh-ccgui-cli-prefs li').evaluateAll((items) => items.map((item) => item.getAttribute('aria-label')))
@@ -642,14 +626,12 @@ await scenario('settings: the CLI list orders the switcher and hides what is swi
           .filter((item) => item.querySelector('[role="switch"]')?.getAttribute('aria-checked') !== 'false')
           .map((item) => item.getAttribute('aria-label')),
       )
-  const menuNames = async () => {
-    await cliSwitcher().click()
-    const items = page.getByRole('menuitemradio').or(page.getByRole('menuitem'))
-    await items.first().waitFor({ timeout: 10_000 })
-    const names = await items.evaluateAll((items) => items.map((item) => (item.textContent ?? '').trim()))
-    await page.keyboard.press('Escape')
-    return names
-  }
+  const menuNames = () =>
+    inPicker(() =>
+      pickerPopover()
+        .getByRole('tab')
+        .evaluateAll((tabs) => tabs.map((tab) => tab.getAttribute('aria-label'))),
+    )
   const openSettings = async () => {
     await openCcguiSettings()
     await until(() => missingSwitch.isVisible(), 'CLI list on the settings page')
@@ -668,7 +650,7 @@ await scenario('settings: the CLI list orders the switcher and hides what is swi
   let restored
   try {
     await newSession('标准模式')
-    await until(() => cliSwitcher().isVisible(), 'CLI switcher')
+    await until(() => modelTrigger().isVisible(), 'model picker')
     const shown = await menuNames()
     await shot('settings-cli-menu')
     if (shown.join() !== expected.join()) throw new Error(`menu: ${shown.join()} (expected ${expected.join()})`)

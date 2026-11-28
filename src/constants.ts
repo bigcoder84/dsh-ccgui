@@ -49,6 +49,12 @@ export function compactDescription(description: string | undefined): string | un
 /** Model id meaning whatever the CLI itself is set to. */
 export const DEFAULT_MODEL_ID = 'default'
 
+/**
+ * Follows the name of the model the CLI is set to, on the row standing for that setting. The
+ * harness shows it as it is; the plugin's picker marks that row by its place instead.
+ */
+export const DEFAULT_MODEL_SUFFIX = '（默认）'
+
 /** Path prefix of the 变更 panel's git routes; the browser posts to `<prefix>/<operation>`. */
 export const GIT_ROUTE_PREFIX = '/dsh-ccgui/git'
 

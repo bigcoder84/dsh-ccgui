@@ -1,5 +1,5 @@
 /**
- * The user's order for the composer's CLI switcher, edited on the settings page. The harness
+ * The user's order for the model picker's provider tabs, edited on the settings page. The harness
  * only lists providers per session, so the switcher reports the ones it sees and they are kept
  * here; that is how the settings page knows the harness's own entry even when no session is
  * open. Which CLIs exist is the plugin's to say (see cli-switches.ts): a CLI switched off is no

@@ -1,5 +1,6 @@
 /**
- * What the composer's CLI switcher and model menu offer, derived from the model directory.
+ * What the model picker's provider tabs (the switcher entries) and model rows offer, derived
+ * from the model directory.
  * @module dsh-ccgui/client/choices
  */
 
@@ -17,6 +18,12 @@ export interface DirectoryReasoning {
   readonly defaultEffort?: string
 }
 
+/** A short label the provider puts beside a model, such as New; text is a literal or translations. */
+export interface DirectoryBadge {
+  readonly text: string | Readonly<Record<string, string>>
+  readonly tone: string
+}
+
 /** One model in the model directory. */
 interface DirectoryModel {
   readonly id: string
@@ -24,6 +31,7 @@ interface DirectoryModel {
   /** Extra detail the menu shows beside the name, e.g. a CLI's cost multiplier. */
   readonly description?: string
   readonly reasoning?: DirectoryReasoning
+  readonly badge?: DirectoryBadge
 }
 
 /** One provider group in the model directory. */
@@ -49,6 +57,10 @@ export interface DirectoryState {
   readonly pending?: DirectorySelection | null
   /** The harness's catalog state; `loading` until the first catalog arrives. */
   readonly status?: string
+  /** Why the whole catalog or the last selection failed, if it did. */
+  readonly error?: string | null
+  /** Providers whose models could not be loaded; the others stay usable. */
+  readonly failures?: readonly { readonly id: string; readonly name: string; readonly message: string }[]
 }
 
 /** What the switcher renders. */

@@ -1,18 +1,20 @@
 /**
- * What the composer's model control lists on a CLI session: that CLI's own models. The
- * harness-provider branch is still derived here, so callers such as the mode seat can resolve
- * the current selection, but a session the harness runs no longer renders this menu: it keeps
- * its native model seat, which also carries settings such as the agent-team toggle. The
- * harness's own seat lists every provider in its one global catalog and offers no way to
- * narrow it per session, which is why a CLI session needs a control of its own. On a harness
- * session a style rule hides just that catalog's CLI groups (see model-menu-styles.ts), so
- * the native seat keeps its own providers and settings without offering a move it cannot make.
+ * What the model picker lists for a session: on a CLI, that CLI's own models; on a session the
+ * harness runs, every provider the harness runs, under one heading each. The harness's own
+ * model seat lists every provider in one global catalog and offers no way to narrow it per
+ * session, which is why the picker lists per provider and takes that seat's place.
  * @module dsh-ccgui/client/menu-models
  */
 
 import { CLI_ROUTE_PREFIX } from '../constants.ts'
 import { cliModels } from './choices.ts'
-import type { DirectoryGroup, DirectoryReasoning, DirectorySelection, DirectoryState } from './choices.ts'
+import type {
+  DirectoryBadge,
+  DirectoryGroup,
+  DirectoryReasoning,
+  DirectorySelection,
+  DirectoryState,
+} from './choices.ts'
 
 const ACCOUNT_PROVIDER_ID = 'deepseek-account'
 const OFFICIAL_PROVIDER_ID = 'deepseek-official'
@@ -36,6 +38,7 @@ export interface MenuRow {
   /** Compact label shown beside the name, e.g. a CLI's usage cost multiplier; prose is left out. */
   readonly description?: string
   readonly reasoning?: DirectoryReasoning
+  readonly badge?: DirectoryBadge
 }
 
 /** One provider's rows, or one vendor's within a CLI. */
@@ -96,12 +99,13 @@ function toSection({ id, name, models }: DirectoryGroup, headed: boolean): MenuS
     id,
     name: id === ACCOUNT_PROVIDER_ID ? ACCOUNT_PROVIDER_NAME : name,
     headed,
-    rows: models.map(({ id: model, name: modelName, description, reasoning }) => ({
+    rows: models.map(({ id: model, name: modelName, description, reasoning, badge }) => ({
       provider: id,
       model,
       name: modelName,
       ...(description === undefined ? {} : { description }),
       ...(reasoning === undefined ? {} : { reasoning }),
+      ...(badge === undefined ? {} : { badge }),
     })),
   }
 }
