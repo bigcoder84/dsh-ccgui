@@ -97,7 +97,7 @@ export const PICKER_STYLES = `
   animation: ${P}-in 0.15s ease;
 }
 @keyframes ${P}-in { from { opacity: 0; transform: translateY(6px) scale(0.98); } }
-.${PICKER_TABS_CLASS} { display: flex; align-items: center; gap: 2px; padding: 4px 8px 0; border-bottom: 1px solid var(--dsw-alias-border-l2); }
+.${PICKER_TABS_CLASS} { display: flex; align-items: center; gap: 2px; padding: 4px 8px 0; }
 .${PICKER_TAB_CLASS} {
   position: relative; display: flex; align-items: center; padding: 6px 8px 7px; border: none; border-radius: 6px 6px 0 0;
   background: none; color: var(--dsw-alias-label-tertiary); font: inherit; cursor: pointer;
@@ -107,7 +107,10 @@ export const PICKER_STYLES = `
 .${PICKER_TAB_CLASS}:disabled { opacity: 0.3; cursor: not-allowed; }
 .${PICKER_TAB_NAME_CLASS} { max-width: 0; margin-left: 0; overflow: hidden; font-size: 12px; white-space: nowrap; transition: max-width 0.2s, margin-left 0.2s; }
 .${PICKER_TAB_CLASS}[aria-selected='true'] .${PICKER_TAB_NAME_CLASS} { max-width: 120px; margin-left: 5px; color: var(--dsw-alias-label-primary); }
-.${PICKER_SEARCH_CLASS} { display: flex; align-items: center; gap: 6px; padding: 6px 12px; border-bottom: 1px solid var(--dsw-alias-border-l2); color: var(--dsw-alias-label-caption); }
+.${PICKER_SEARCH_CLASS} {
+  display: flex; align-items: center; gap: 6px; margin: 6px 8px 0; padding: 5px 8px; border-radius: var(--dsw-radius-sm);
+  background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-caption);
+}
 .${PICKER_SEARCH_CLASS} input { flex: 1; min-width: 0; border: none; outline: none; background: transparent; color: var(--dsw-alias-label-primary); font: inherit; font-size: 13px; }
 .${PICKER_LIST_CLASS} { max-height: 176px; overflow-y: auto; padding: 4px; }
 .${PICKER_HEADING_CLASS} { padding: 5px 8px 2px; color: var(--dsw-alias-label-tertiary); font-size: 12px; font-weight: 500; }
@@ -129,7 +132,6 @@ export const PICKER_STYLES = `
 .${PICKER_HINT_CLASS} { padding: 12px; color: var(--dsw-alias-label-tertiary); font-size: 12px; line-height: 18px; text-align: center; }
 .${PICKER_HINT_CLASS} button { margin-left: 6px; border: none; background: none; color: ${ACCENT}; font: inherit; cursor: pointer; }
 
-.${PICKER_EFFORT_CLASS} { border-top: 1px solid var(--dsw-alias-border-l2); }
 .${PICKER_EFFORT_HEAD_CLASS} { display: grid; grid-template-columns: 28px 1fr 28px; align-items: center; padding: 6px 8px 0; text-align: center; }
 .${PICKER_ICON_BUTTON_CLASS} {
   display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; padding: 0; border: none;
@@ -165,8 +167,10 @@ export const PICKER_STYLES = `
 .${PICKER_TRACK_CLASS}[data-dragging] .${PICKER_THUMB_CLASS}, .${PICKER_TRACK_CLASS}[data-dragging] .${PICKER_FILL_CLASS} { transition: none; }
 .${PICKER_TRACK_CLASS}[data-dragging] .${PICKER_THUMB_CLASS} { transform: scale(1.08); }
 
-.${PICKER_FOOTER_CLASS} { border-top: 1px solid var(--dsw-alias-border-l2); }
-.${PICKER_HOSTED_CLASS} { display: flex; flex-direction: column; padding: 2px 0; border-top: 1px solid var(--dsw-alias-border-l2); }
+/* One rule parts the model choice from the settings below it; whichever settings block comes first carries it. */
+.${PICKER_EFFORT_CLASS}, .${PICKER_HOSTED_CLASS}, .${PICKER_FOOTER_CLASS} { border-top: 1px solid var(--dsw-alias-border-l2); }
+:is(.${PICKER_EFFORT_CLASS}, .${PICKER_HOSTED_CLASS}:not(:empty), .${PICKER_FOOTER_CLASS}) ~ :is(.${PICKER_EFFORT_CLASS}, .${PICKER_HOSTED_CLASS}, .${PICKER_FOOTER_CLASS}) { border-top: 0; }
+.${PICKER_HOSTED_CLASS} { display: flex; flex-direction: column; padding: 2px 0; }
 .${PICKER_HOSTED_CLASS} > [role='menuitem'] { height: 30px; padding: 0 12px; border-radius: 0; color: var(--dsw-alias-label-secondary); font-size: 12px; }
 .${PICKER_HOSTED_CLASS}:empty { display: none; }
 .${PICKER_FOOTER_ROW_CLASS} {
