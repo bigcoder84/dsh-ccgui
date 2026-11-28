@@ -558,6 +558,34 @@ describe('contextUsageFor', () => {
     expect(registry.contextUsageFor('dsh-1', 'cli-x')).toEqual({ used: 40_000, size: 200_000 })
     expect(registry.contextUsageFor('dsh-1', 'cli-y')).toBeUndefined()
   })
+
+  // A CLI that died or was stopped takes its figures with it, and a resumed one reports
+  // nothing until its next turn: the meter vanished in between.
+  it('keeps the last reading once the CLI stops, until a successor on the route reports', () => {
+    const first = fakeSession({ contextUsage: { used: 40_000, size: 200_000 } })
+    const successor = { contextUsage: undefined as { used: number; size: number } | undefined }
+    const second = fakeSession()
+    Object.defineProperty(second, 'contextUsage', { get: () => successor.contextUsage })
+    const created = [first, second]
+    const { registry } = setup({ createSession: () => created.shift() ?? fakeSession() })
+    registry.resolveSession('cli-x', 'dsh-1')
+    registry.stopProvider('cli-x', 'off')
+    expect(registry.contextUsageFor('dsh-1', 'cli-x')).toEqual({ used: 40_000, size: 200_000 })
+    expect(registry.contextUsageFor('dsh-1', 'cli-y')).toBeUndefined()
+    registry.resolveSession('cli-x', 'dsh-1')
+    expect(registry.contextUsageFor('dsh-1', 'cli-x')).toEqual({ used: 40_000, size: 200_000 })
+    successor.contextUsage = { used: 1_000, size: 200_000 }
+    expect(registry.contextUsageFor('dsh-1', 'cli-x')).toEqual({ used: 1_000, size: 200_000 })
+  })
+
+  it('does not carry a reading over to another CLI, nor past the harness session', () => {
+    const { registry } = setup({ createSession: () => fakeSession({ contextUsage: { used: 5, size: 10 } }) })
+    registry.resolveSession('cli-x', 'dsh-1')
+    registry.resolveSession('cli-y', 'dsh-1')
+    expect(registry.contextUsageFor('dsh-1', 'cli-x')).toBeUndefined()
+    registry.disposeSession('dsh-1')
+    expect(registry.contextUsageFor('dsh-1', 'cli-y')).toBeUndefined()
+  })
 })
 
 describe('stopProvider', () => {

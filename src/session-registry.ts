@@ -72,6 +72,12 @@ interface LiveSession {
   readonly session: CliSession
 }
 
+/** The last context figures a stopped CLI reported, and the route they belong to. */
+interface LastReading {
+  readonly provider: string
+  readonly usage: ContextUsage
+}
+
 /** The CLI settings a user can pick before the CLI has started. */
 type Setting = 'mode' | 'speed'
 
@@ -103,6 +109,11 @@ export class CliSessionRegistry {
   private sessions: ReadonlyMap<string, LiveSession> = new Map()
   private stopping: ReadonlyMap<string, Promise<void>> = new Map()
   private turnMessages: ReadonlyMap<string, ReadonlySet<string>> = new Map()
+  /**
+   * Figures outliving their CLI: one that died or was stopped takes them along, and a
+   * resumed one reports none until its next turn, so the meter would vanish in between.
+   */
+  private lastReadings: ReadonlyMap<string, LastReading> = new Map()
   /** Settings picked while their session had no CLI yet, by setting and harness session. */
   private picks: Readonly<Record<Setting, ReadonlyMap<string, PickedValue>>> = { mode: new Map(), speed: new Map() }
 
@@ -214,7 +225,10 @@ export class CliSessionRegistry {
    */
   contextUsageFor(sessionId: string, provider: string): ContextUsage | undefined {
     const live = this.sessions.get(sessionId)
-    return live?.provider === provider ? live.session.contextUsage : undefined
+    const own = live?.provider === provider ? live.session.contextUsage : undefined
+    if (own !== undefined) return own
+    const last = this.lastReadings.get(sessionId)
+    return last?.provider === provider ? last.usage : undefined
   }
 
   /**
@@ -316,6 +330,9 @@ export class CliSessionRegistry {
       ...this.startSettings(sessionId, provider),
     })
     this.sessions = new Map([...this.sessions, [sessionId, { provider, session }]])
+    // Another CLI holds a different conversation, so the old figures say nothing about it.
+    if (this.lastReadings.get(sessionId)?.provider !== provider)
+      this.lastReadings = without(this.lastReadings, sessionId)
     return session
   }
 
@@ -343,6 +360,7 @@ export class CliSessionRegistry {
     this.turnMessages = without(this.turnMessages, sessionId)
     this.picks = { mode: without(this.picks.mode, sessionId), speed: without(this.picks.speed, sessionId) }
     this.stopSession(sessionId)
+    this.lastReadings = without(this.lastReadings, sessionId)
   }
 
   /**
@@ -446,6 +464,10 @@ export class CliSessionRegistry {
     const live = this.sessions.get(sessionId)
     if (live === undefined) return
     this.sessions = without(this.sessions, sessionId)
+    const usage = live.session.contextUsage
+    if (usage !== undefined) {
+      this.lastReadings = new Map([...this.lastReadings, [sessionId, { provider: live.provider, usage }]])
+    }
     const stoppedSelf = live.session.dispose(false, reason).catch((error: unknown) => {
       this.deps.warn(`ccgui: failed to stop ${live.provider}: ${String(error)}`)
     })
