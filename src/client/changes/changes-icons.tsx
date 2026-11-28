@@ -143,3 +143,12 @@ export function SparkleIcon(props: IconProps): ReactElement {
     </Stroke>
   )
 }
+
+/** A rounded square: stop what is running. */
+export function StopIcon(props: IconProps): ReactElement {
+  return (
+    <Stroke {...props}>
+      <rect x="6" y="6" width="12" height="12" rx="2" />
+    </Stroke>
+  )
+}

@@ -99,16 +99,6 @@ describe('ChangesPanel', () => {
     })
   })
 
-  it('keeps the AI commit-message button visible but says it is not available yet', async () => {
-    const { fetchFn } = server()
-    const user = userEvent.setup()
-    renderPanel(fetchFn)
-    const ai = await screen.findByRole('button', { name: 'AI 生成提交信息' })
-    expect(screen.queryByText('暂未开放，敬请期待')).toBeNull()
-    await user.click(ai)
-    expect(await screen.findByText('暂未开放，敬请期待')).toBeTruthy()
-  })
-
   it('selects a whole group from its checkbox and marks a partial group', async () => {
     const { fetchFn } = server({
       status: () => ({

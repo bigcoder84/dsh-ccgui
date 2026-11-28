@@ -38,6 +38,11 @@ import { registerModeRoute } from './mode-routes.ts'
 import type { ImageRef } from './prompt-images.ts'
 import { probeModels } from './model-probe.ts'
 import { npxCacheDir, startFromNpxCache } from './npx-cache.ts'
+import { registerCommitMessageRoute } from './commit/commit-route.ts'
+import type { CommitRouteDeps } from './commit/commit-route.ts'
+import { chooseRoute } from './commit/commit-suggest.ts'
+import { createCommitService } from './commit/commit-service.ts'
+import { CommitSettingsStore, parseCommitSettings } from './commit/commit-settings.ts'
 import { gitHandler, registerGitRoutes } from './git/git-routes.ts'
 import type { GitConnection, GitWebServer } from './git/git-routes.ts'
 import { readPtcWrap } from './session/ptc-call.ts'
@@ -75,6 +80,7 @@ const PLUGIN_STOPPED_REASON = 'dsh-ccgui 插件已停止或重新加载（例如
 const PLUGIN_HOME = 'ccgui'
 const MODEL_CACHE_FILE = 'models.json'
 const CLI_SWITCHES_FILE = 'cli-switches.json'
+const COMMIT_SETTINGS_FILE = 'commit-message.json'
 const MODEL_PROBE_DIR = 'model-probe'
 
 /** Plugin configuration. */
@@ -92,6 +98,12 @@ export interface Config {
   reviewProvider: string
   /** Model on that provider; empty picks its first listed model. */
   reviewModel: string
+  /** Non-CLI provider for the 变更 panel's AI commit message; empty falls back to the review route, then the default model. */
+  commitProvider: string
+  /** Model on that provider; empty picks its first listed model. */
+  commitModel: string
+  /** System prompt for the AI commit message; empty uses the built-in one. */
+  commitPrompt: string
 }
 
 const REVIEW_ROUTE_UNSET =
@@ -128,6 +140,9 @@ export default class CliBridge extends Service {
     startTimeoutMs: z.number().min(1).default(120_000),
     reviewProvider: z.string().default(''),
     reviewModel: z.string().default(''),
+    commitProvider: z.string().default(''),
+    commitModel: z.string().default(''),
+    commitPrompt: z.string().default(''),
   })
 
   private readonly registry: CliSessionRegistry
@@ -193,7 +208,14 @@ export default class CliBridge extends Service {
    * up for a moment at startup. The file is small and read once, hence synchronously.
    */
   private loadSwitches(agents: readonly CliAgentConfig[]): CliSwitches {
-    const path = this.homePath(PLUGIN_HOME, CLI_SWITCHES_FILE)
+    const { text, file } = this.readHomeFile(CLI_SWITCHES_FILE)
+    const providers = agents.map((agent) => cliRoute(agent.id))
+    return new CliSwitches(providers, parseSwitches(text), (disabled) => file.write(formatSwitches(disabled)))
+  }
+
+  /** One of the plugin's small settings files: its text when there is one, and how to rewrite it. */
+  private readHomeFile(name: string): { text: string | undefined; file: AtomicFile } {
+    const path = this.homePath(PLUGIN_HOME, name)
     let text: string | undefined
     try {
       text = readFileSync(path, 'utf8')
@@ -202,9 +224,7 @@ export default class CliBridge extends Service {
       if ((error as { code?: unknown }).code !== 'ENOENT')
         this.ctx.logger.warn(`ccgui: could not read ${path}: ${String(error)}`)
     }
-    const file = new AtomicFile(path)
-    const providers = agents.map((agent) => cliRoute(agent.id))
-    return new CliSwitches(providers, parseSwitches(text), (disabled) => file.write(formatSwitches(disabled)))
+    return { text, file: new AtomicFile(path) }
   }
 
   /** Read in the background: the menu works without it, and fills in once it arrives. */
@@ -254,6 +274,10 @@ export default class CliBridge extends Service {
         'ccgui: CLI switch route',
       )
       child.effect(
+        () => registerCommitMessageRoute(child.webServer, this.commitRouteDeps(child), child.connection),
+        'ccgui: commit message route',
+      )
+      child.effect(
         () =>
           registerContextRoute(
             child.webServer,
@@ -263,6 +287,33 @@ export default class CliBridge extends Service {
         'ccgui: context route',
       )
     })
+  }
+
+  /**
+   * What the AI commit message routes need. The settings page's choice wins; the config's route
+   * and the harness default are read per request, so editing either applies at once.
+   */
+  private commitRouteDeps(child: Context): CommitRouteDeps {
+    const config = (): Config => this.config
+    const { text, file } = this.readHomeFile(COMMIT_SETTINGS_FILE)
+    const service = createCommitService({
+      store: new CommitSettingsStore(parseCommitSettings(text), (next) => file.write(next)),
+      directory: () => this.ctx.llm,
+      fallbackRoute: () =>
+        chooseRoute({
+          configured: { provider: config().commitProvider, model: config().commitModel },
+          review: { provider: config().reviewProvider, model: config().reviewModel },
+          defaultSelection: readDefaultModel(this.ctx.get('agentDefaultModel'))?.currentSelection(),
+          firstModel: (provider) => this.firstModel(provider),
+        }),
+      configPrompt: () => config().commitPrompt,
+    })
+    return {
+      spawn: (spec) => child.subprocess.spawn(spec),
+      llm: () => this.ctx.llm,
+      service,
+      warn: (message) => child.logger.warn(message),
+    }
   }
 
   /** Only the CLIs switched on become providers; the switch bridge keeps that set current. */

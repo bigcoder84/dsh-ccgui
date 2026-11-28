@@ -7,6 +7,7 @@
 
 import type { CliPrefs } from './cli-prefs.ts'
 import type { CliSwitches } from './cli-switches.ts'
+import type { CommitSettingsApi } from './commit-settings-api.ts'
 import { whileEnabled } from './feature-settings.ts'
 import type { FeatureId, FeatureSettings } from './feature-settings.ts'
 import { SETTINGS_TITLE, SettingsIcon, SettingsPage } from './settings-page.tsx'
@@ -37,6 +38,13 @@ interface Disposable {
   dispose(): Promise<void>
 }
 
+/** What the page's tabs besides the feature switches edit. */
+export interface SettingsPages {
+  readonly cliPrefs: CliPrefs
+  readonly cliSwitches: CliSwitches
+  readonly commitSettings?: CommitSettingsApi | undefined
+}
+
 /** The section and its navigation icon share this id; the icon slot matches it against sections. */
 export const SETTINGS_SECTION_ID = 'dsh-ccgui.settings'
 /** After the harness's own sections and 插件市场 (40), which keeps the built-in order intact. */
@@ -52,15 +60,11 @@ function isDisposable(value: unknown): value is Disposable {
  * plugin; the dialog owns the chrome, scrolling and title, and the section renders only content.
  * @param ctx - the plugin's client context.
  * @param settings - the feature settings the page edits.
- * @param cliPrefs - the CLI switcher order the page edits.
- * @param cliSwitches - the plugin's CLI switches the page edits.
+ * @param pages - what the other tabs edit: the CLI switcher order, the CLI switches and the
+ *   AI commit message settings.
  */
-export function registerSettingsPage(
-  ctx: SettingsContext,
-  settings: FeatureSettings,
-  cliPrefs: CliPrefs,
-  cliSwitches: CliSwitches,
-): void {
+export function registerSettingsPage(ctx: SettingsContext, settings: FeatureSettings, pages: SettingsPages): void {
+  const { cliPrefs, cliSwitches, commitSettings } = pages
   ctx.slots.inject('settings.section', () =>
     ctx.slots.register(
       {
@@ -68,7 +72,7 @@ export function registerSettingsPage(
         id: SETTINGS_SECTION_ID,
         order: SETTINGS_ORDER,
         label: SETTINGS_TITLE,
-        inject: () => ({ settings, cliPrefs, cliSwitches }),
+        inject: () => ({ settings, cliPrefs, cliSwitches, commitSettings }),
       },
       SettingsPage,
     ),

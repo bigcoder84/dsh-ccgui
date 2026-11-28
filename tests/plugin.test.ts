@@ -64,6 +64,9 @@ describe('CliBridge.Config', () => {
         startTimeoutMs: 120_000,
         reviewProvider: '',
         reviewModel: '',
+        commitProvider: '',
+        commitModel: '',
+        commitPrompt: '',
       },
     })
   })

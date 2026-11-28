@@ -6,17 +6,17 @@
 
 import { useCallback, useMemo, useState, useSyncExternalStore } from 'react'
 import type { ReactElement } from 'react'
-import { Button, Modal, Toast } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import { createGitApi } from './changes-api.ts'
 import type { Fetch, GitApi } from './changes-api.ts'
 import { ChangesDiff } from './changes-diff.tsx'
 import { ChangesHeader } from './changes-header.tsx'
-import { SparkleIcon } from './changes-icons.tsx'
+import { CommitBox } from './changes-commit.tsx'
 import { ChangesList, SummaryRow } from './changes-list.tsx'
 import type { ChangeEntry, GroupId, RepoStatus } from './changes-model.ts'
 import type { ListActions } from './changes-row.tsx'
 import { CLS } from './changes-styles.ts'
-import { canCommit, selectedCount, useChanges } from './use-changes.ts'
+import { selectedCount, useChanges } from './use-changes.ts'
 import type { ChangesActions, ChangesState } from './use-changes.ts'
 import type { Store } from '../store.ts'
 
@@ -36,8 +36,6 @@ interface PendingDiscard {
 
 const NO_DIRECTORY = '这个会话还没有工作目录'
 const NOT_A_REPO = '当前工作区不是 Git 仓库'
-const AI_LABEL = 'AI 生成提交信息'
-const AI_UNAVAILABLE = '暂未开放，敬请期待'
 
 function useCwd(list: CwdList, sessionId: string): string | undefined {
   const subscribe = useCallback((listener: () => void) => list.subscribe(listener), [list])
@@ -83,71 +81,6 @@ function DiscardDialog({
         </>
       }
     />
-  )
-}
-
-/** The AI-written commit message has no implementation yet; the button explains that on click. */
-function AiCommitButton({ anchor }: { readonly anchor: HTMLElement | null }): ReactElement {
-  const [showTip, setShowTip] = useState(false)
-  return (
-    <>
-      <button
-        type="button"
-        className={CLS.aiButton}
-        title={AI_LABEL}
-        aria-label={AI_LABEL}
-        onClick={() => {
-          setShowTip(true)
-        }}
-      >
-        <SparkleIcon />
-      </button>
-      {showTip ? (
-        <Toast
-          text={AI_UNAVAILABLE}
-          anchor={anchor}
-          onDone={() => {
-            setShowTip(false)
-          }}
-        />
-      ) : null}
-    </>
-  )
-}
-
-function CommitBox({
-  state,
-  actions,
-}: {
-  readonly state: ChangesState
-  readonly actions: ChangesActions
-}): ReactElement {
-  const count = selectedCount(state)
-  // The toast is a top banner centered on its anchor; anchoring the 34px button
-  // would push it past the window edge, so it follows the whole commit box.
-  const [box, setBox] = useState<HTMLDivElement | null>(null)
-  return (
-    <div className={CLS.commit} ref={setBox}>
-      <textarea
-        className={CLS.commitInput}
-        rows={2}
-        placeholder="提交信息…"
-        aria-label="提交信息"
-        value={state.message}
-        onChange={(event) => {
-          actions.setMessage(event.target.value)
-        }}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && canCommit(state)) actions.commit()
-        }}
-      />
-      <div className={CLS.commitRow}>
-        <button type="button" className={CLS.commitButton} disabled={!canCommit(state)} onClick={actions.commit}>
-          {state.busy === 'commit' ? '提交中…' : `提交 (${String(count)})`}
-        </button>
-        <AiCommitButton anchor={box} />
-      </div>
-    </div>
   )
 }
 
@@ -213,7 +146,7 @@ function RepoView({ api, state, actions, status }: ViewProps & { readonly status
       <div className={CLS.scroll}>
         <ChangesList status={status} selection={state.selection} busy={busy} actions={listActions} />
       </div>
-      <CommitBox state={state} actions={actions} />
+      <CommitBox api={api} state={state} actions={actions} />
       <DiscardDialog
         pending={pending}
         onClose={() => {

@@ -138,7 +138,7 @@ describe('registerSettingsPage', () => {
     const settings = createFeatureSettings(memoryStorage())
     const cliPrefs = createCliPrefs(memoryStorage())
     const cliSwitches = idleSwitches()
-    registerSettingsPage(ctx, settings, cliPrefs, cliSwitches)
+    registerSettingsPage(ctx, settings, { cliPrefs, cliSwitches })
     const [section, icon] = registrations
     expect(section?.options).toMatchObject({
       name: 'settings.section',
@@ -165,8 +165,7 @@ describe('registerSettingsPage', () => {
         },
       },
       createFeatureSettings(memoryStorage()),
-      createCliPrefs(memoryStorage()),
-      idleSwitches(),
+      { cliPrefs: createCliPrefs(memoryStorage()), cliSwitches: idleSwitches() },
     )
     const Component = page?.component as ComponentType<Record<string, unknown>>
     render(<Component {...(page?.inject?.() as Record<string, unknown>)} />)

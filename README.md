@@ -100,6 +100,8 @@ CLI 会话列出当前 CLI 真实可用的模型，第一项是它自己的默�
 
 右侧栏「变更」把改动分成已暂存、未暂存、未跟踪，可以暂存、撤销、提交、推拉、切换分支，点开文件看行内 diff。
 
+提交框旁的「AI 生成」会把选中文件的改动交给一个 DSH 模型，写好提交信息填进输入框，生成中可以点「停止」。用哪个模型、用什么提示词在「设置 › CC GUI 设置 › 提交信息」里选，CLI 不在可选之列。不选时依次用插件配置里的 `commitProvider` / `commitModel`、`reviewProvider` / `reviewModel`，再用 DSH 的默认模型（同样不能是 CLI）；都没有时会提示去设置页选。插件不会替你挑选提供方，因为请求带着代码。改动很多时只发排在前面的文件的 diff（源码优先，锁文件、构建产物只列文件名），总量按模型的上下文窗口限制在 64 KiB 以内。
+
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="./assets/illustrations/04-changes-dark.webp" />
   <img alt="变更面板截图：改动按已暂存、未暂存、未跟踪分组，旁边是一个文件的行内 diff" src="./assets/illustrations/04-changes-light.webp" />

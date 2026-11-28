@@ -1,7 +1,7 @@
 /**
- * One file in the 变更 list: commit checkbox, status letter, file-type badge, the path (its
- * directory dimmed and cut from the left, its name in the status color), line counts, and the
- * stage, unstage and discard controls that appear on hover.
+ * One file in the 变更 list: commit checkbox, a tinted status mark, the path (its name first,
+ * its directory dimmed and cut from the left), line counts, and the stage, unstage and
+ * discard controls that appear on hover. An untracked file is marked A, as a new file.
  * @module dsh-ccgui/client/changes/changes-row
  */
 
@@ -22,30 +22,7 @@ export interface ListActions {
   readonly open: (entry: ChangeEntry, side: DiffSide) => void
 }
 
-/** File-type badges by extension; anything else gets the plain document badge. */
-const BADGES: Readonly<Record<string, { readonly text: string; readonly tone: string }>> = {
-  ts: { text: 'TS', tone: 'blue' },
-  tsx: { text: 'TSX', tone: 'blue' },
-  js: { text: 'JS', tone: 'yellow' },
-  jsx: { text: 'JSX', tone: 'yellow' },
-  mjs: { text: 'JS', tone: 'yellow' },
-  json: { text: '{}', tone: 'yellow' },
-  md: { text: 'M↓', tone: 'dark' },
-  html: { text: '<>', tone: 'orange' },
-  css: { text: '#', tone: 'blue' },
-  py: { text: 'PY', tone: 'blue' },
-  rs: { text: 'RS', tone: 'orange' },
-  go: { text: 'GO', tone: 'blue' },
-}
-const DEFAULT_BADGE = { text: '·', tone: 'plain' }
-
 const SIDE_OF: Readonly<Record<GroupId, DiffSide>> = { staged: 'staged', unstaged: 'unstaged', untracked: 'untracked' }
-
-function badgeOf(path: string): { readonly text: string; readonly tone: string } {
-  const name = splitPath(path).name
-  const dot = name.lastIndexOf('.')
-  return dot <= 0 ? DEFAULT_BADGE : (BADGES[name.slice(dot + 1).toLowerCase()] ?? DEFAULT_BADGE)
-}
 
 interface RowProps {
   readonly group: GroupId
@@ -100,12 +77,12 @@ function PathButton({ group, entry, actions }: Omit<RowProps, 'busy'>): ReactEle
         actions.open(entry, SIDE_OF[group])
       }}
     >
+      <span className={CLS.name}>{name}</span>
       {dir === '' ? null : (
         <span className={CLS.dir} dir="rtl">
           <bdo dir="ltr">{dir}</bdo>
         </span>
       )}
-      <span className={CLS.name}>{name}</span>
     </button>
   )
 }
@@ -127,7 +104,6 @@ function LineStats({ entry }: { readonly entry: ChangeEntry }): ReactElement {
 /** One row of a group. */
 export function FileRow(props: RowProps & { readonly selected: boolean }): ReactElement {
   const { entry, selected, actions } = props
-  const badge = badgeOf(entry.path)
   return (
     <div className={CLS.row} data-status={entry.status === '?' ? 'untracked' : entry.status}>
       <input
@@ -140,10 +116,7 @@ export function FileRow(props: RowProps & { readonly selected: boolean }): React
         }}
       />
       <span className={CLS.letter} title={STATUS_LABELS[entry.status]}>
-        {entry.status}
-      </span>
-      <span className={CLS.badge} data-tone={badge.tone}>
-        {badge.text}
+        {entry.status === '?' ? 'A' : entry.status}
       </span>
       <PathButton {...props} />
       <LineStats entry={entry} />

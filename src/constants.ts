@@ -79,3 +79,6 @@ export const CLI_SWITCH_ROUTE = '/dsh-ccgui/clis'
 
 /** The route the composer's context meter reads: how full a CLI session says its context is. */
 export const CONTEXT_ROUTE = '/dsh-ccgui/context'
+
+/** The route the 变更 panel's AI button posts to: a commit message for the selected files. */
+export const COMMIT_MESSAGE_ROUTE = '/dsh-ccgui/commit-message'

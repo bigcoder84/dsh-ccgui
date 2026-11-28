@@ -20,6 +20,7 @@ import type { AddToChatContext } from './add-to-chat.tsx'
 import { createCliPrefs } from './cli-prefs.ts'
 import { createCliSwitchApi } from './cli-switch-api.ts'
 import { createCliSwitches } from './cli-switches.ts'
+import { createCommitSettingsApi } from './commit-settings-api.ts'
 import { contextApiFor } from './context-api.ts'
 import { CliContextMeter } from './context-meter.tsx'
 import { CONTEXT_METER_STYLES } from './context-meter-styles.ts'
@@ -268,7 +269,12 @@ export function apply(ctx: ClientContext): void {
     createCliSwitchApi((input, init) => window.fetch(input, init)),
     () => cliPrefs.getSnapshot().hidden,
   )
-  registerSettingsPage(ctx, settings, cliPrefs, cliSwitches)
+  registerSettingsPage(ctx, settings, {
+    cliPrefs,
+    cliSwitches,
+    // `window.fetch` needs its receiver, so it is wrapped rather than passed bare.
+    commitSettings: createCommitSettingsApi((input, init) => window.fetch(input, init)),
+  })
   registerSwitchableFeatures(ctx, settings)
   registerAddToChat(ctx)
 }

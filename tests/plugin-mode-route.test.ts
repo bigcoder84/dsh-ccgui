@@ -73,6 +73,7 @@ describe('CliBridge mode route', () => {
         '/dsh-ccgui/git',
         '/dsh-ccgui/modes',
         '/dsh-ccgui/clis',
+        '/dsh-ccgui/commit-message',
         '/dsh-ccgui/context',
       ])
     })

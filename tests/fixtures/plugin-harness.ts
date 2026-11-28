@@ -164,6 +164,9 @@ export const BASE: Config = {
   startTimeoutMs: 10_000,
   reviewProvider: '',
   reviewModel: '',
+  commitProvider: '',
+  commitModel: '',
+  commitPrompt: '',
 }
 
 export async function load(h: Harness, config: Partial<Config> = {}): Promise<Fiber> {

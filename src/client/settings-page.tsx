@@ -1,7 +1,8 @@
 /**
  * The plugin's section inside the harness's Settings dialog: a header with the version and
  * contact pills, then one tab per group of options: the CLI switcher's order and choice of
- * providers (cli-prefs-section.tsx), the switches for the plugin's interface additions
+ * providers (cli-prefs-section.tsx), the AI commit message's model and prompt
+ * (commit-settings-section.tsx), the switches for the plugin's interface additions
  * (features-section.tsx), the features that are not open yet (more-section.tsx) and the
  * release notes paged by version (release-notes-section.tsx).
  * The dialog owns the chrome, title and scrolling; this renders content only.
@@ -13,6 +14,8 @@ import { IconSlidersTwoOutlineRegular } from '@deepseek-ai/dsh-client-ui-primiti
 import type { CliPrefs } from './cli-prefs.ts'
 import type { CliSwitches } from './cli-switches.ts'
 import { CLI_PREFS_STYLES, CliPrefsSection } from './cli-prefs-section.tsx'
+import type { CommitSettingsApi } from './commit-settings-api.ts'
+import { COMMIT_SETTINGS_STYLES, CommitSettingsSection } from './commit-settings-section.tsx'
 import type { FeatureSettings } from './feature-settings.ts'
 import { FeaturesSection } from './features-section.tsx'
 import { MORE_SECTION_STYLES, MoreSection } from './more-section.tsx'
@@ -23,6 +26,7 @@ import type { SettingsTab } from './settings-tabs.tsx'
 
 export const SETTINGS_TITLE = 'CC GUI 设置'
 const CLI_TAB_LABEL = 'CLI 列表'
+const COMMIT_TAB_LABEL = '提交信息'
 const FEATURES_TAB_LABEL = '界面交互'
 const MORE_TAB_LABEL = '更多功能'
 const NOTES_TAB_LABEL = '版本记录'
@@ -45,25 +49,33 @@ export const SETTINGS_PAGE_STYLES = `
 .${PAGE_CLASS}-row + .${PAGE_CLASS}-row { border-top: 0.5px solid var(--dsw-alias-border-l2); }
 .${PAGE_CLASS}-title { color: var(--dsw-alias-label-primary); font-size: 13px; font-weight: 500; line-height: 20px; }
 .${PAGE_CLASS}-desc { margin-top: 2px; color: var(--dsw-alias-label-secondary); font-size: 12px; line-height: 18px; }
-${SETTINGS_TABS_STYLES}${CLI_PREFS_STYLES}${SETTINGS_ABOUT_STYLES}${MORE_SECTION_STYLES}${RELEASE_NOTES_STYLES}`
+${SETTINGS_TABS_STYLES}${CLI_PREFS_STYLES}${COMMIT_SETTINGS_STYLES}${SETTINGS_ABOUT_STYLES}${MORE_SECTION_STYLES}${RELEASE_NOTES_STYLES}`
 
 /**
  * @param props.settings - the feature settings the switches read and write.
  * @param props.cliPrefs - the CLI switcher order the CLI list reads and writes.
  * @param props.cliSwitches - the plugin's CLI switches the CLI list reads and writes.
+ * @param props.commitSettings - the AI commit message settings; absent hides their tab.
  * @returns the settings page.
  */
 export function SettingsPage({
   settings,
   cliPrefs,
   cliSwitches,
+  commitSettings,
 }: {
   readonly settings: FeatureSettings
   readonly cliPrefs: CliPrefs
   readonly cliSwitches: CliSwitches
+  readonly commitSettings?: CommitSettingsApi | undefined
 }): ReactElement {
+  const commitTab: readonly SettingsTab[] =
+    commitSettings === undefined
+      ? []
+      : [{ id: 'commit', label: COMMIT_TAB_LABEL, render: () => <CommitSettingsSection api={commitSettings} /> }]
   const tabs: readonly SettingsTab[] = [
     { id: 'cli', label: CLI_TAB_LABEL, render: () => <CliPrefsSection prefs={cliPrefs} switches={cliSwitches} /> },
+    ...commitTab,
     { id: 'features', label: FEATURES_TAB_LABEL, render: () => <FeaturesSection settings={settings} /> },
     { id: 'more', label: MORE_TAB_LABEL, render: () => <MoreSection /> },
     { id: 'notes', label: NOTES_TAB_LABEL, render: () => <ReleaseNotesSection /> },
