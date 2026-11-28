@@ -6,6 +6,7 @@ import { userEvent } from '@testing-library/user-event'
 import type { ComponentType } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createCliPrefs } from '../../src/client/cli-prefs.ts'
+import { createCliSwitches } from '../../src/client/cli-switches.ts'
 import { FEATURES, createFeatureSettings } from '../../src/client/feature-settings.ts'
 import type { FeatureStorage } from '../../src/client/feature-settings.ts'
 import { UPCOMING_FEATURES } from '../../src/client/more-section.tsx'
@@ -27,6 +28,10 @@ afterEach(() => {
   cleanup()
 })
 
+/** Switches whose plugin has not answered yet; these tests are about the page, not the list. */
+const idleSwitches = () =>
+  createCliSwitches({ read: () => new Promise(() => undefined), set: vi.fn(), adopt: vi.fn() }, () => [])
+
 describe('SettingsPage', () => {
   async function openFeatures(): Promise<void> {
     await userEvent.click(screen.getByRole('tab', { name: '界面交互' }))
@@ -34,7 +39,11 @@ describe('SettingsPage', () => {
 
   it('opens on the CLI list, with a tab per group of options', () => {
     render(
-      <SettingsPage settings={createFeatureSettings(memoryStorage())} cliPrefs={createCliPrefs(memoryStorage())} />,
+      <SettingsPage
+        settings={createFeatureSettings(memoryStorage())}
+        cliPrefs={createCliPrefs(memoryStorage())}
+        cliSwitches={idleSwitches()}
+      />,
     )
     expect(screen.getByRole('heading', { name: 'CC GUI 设置' })).toBeDefined()
     expect(screen.getByRole('link', { name: 'GitHub' })).toBeDefined()
@@ -42,14 +51,14 @@ describe('SettingsPage', () => {
     expect(tabs.map((tab) => tab.textContent)).toEqual(['CLI 列表', '界面交互', '更多功能', '版本记录'])
     expect(tabs.map((tab) => tab.getAttribute('aria-selected'))).toEqual(['true', 'false', 'false', 'false'])
     expect(screen.getByRole('tabpanel', { name: 'CLI 列表' })).toBeDefined()
-    expect(screen.getByText('打开任一会话后，这里会列出可切换的 CLI。')).toBeDefined()
+    expect(screen.getByText('正在读取 CLI 列表…')).toBeDefined()
     expect(screen.queryByRole('switch')).toBeNull()
   })
 
   it('shows one switch per feature, reflecting its state', async () => {
     const settings = createFeatureSettings(memoryStorage())
     settings.set('terminalEntry', false)
-    render(<SettingsPage settings={settings} cliPrefs={createCliPrefs(memoryStorage())} />)
+    render(<SettingsPage settings={settings} cliPrefs={createCliPrefs(memoryStorage())} cliSwitches={idleSwitches()} />)
     await openFeatures()
     expect(screen.getByRole('tabpanel', { name: '界面交互' })).toBeDefined()
     const switches = screen.getAllByRole('switch')
@@ -62,7 +71,7 @@ describe('SettingsPage', () => {
 
   it('switches a feature off and on again', async () => {
     const settings = createFeatureSettings(memoryStorage())
-    render(<SettingsPage settings={settings} cliPrefs={createCliPrefs(memoryStorage())} />)
+    render(<SettingsPage settings={settings} cliPrefs={createCliPrefs(memoryStorage())} cliSwitches={idleSwitches()} />)
     await openFeatures()
     const files = screen.getByRole('switch', { name: '右侧栏默认打开工作区文件' })
     await userEvent.click(files)
@@ -74,7 +83,11 @@ describe('SettingsPage', () => {
 
   it('announces the upcoming features without offering a control', async () => {
     render(
-      <SettingsPage settings={createFeatureSettings(memoryStorage())} cliPrefs={createCliPrefs(memoryStorage())} />,
+      <SettingsPage
+        settings={createFeatureSettings(memoryStorage())}
+        cliPrefs={createCliPrefs(memoryStorage())}
+        cliSwitches={idleSwitches()}
+      />,
     )
     await userEvent.click(screen.getByRole('tab', { name: '更多功能' }))
     const panel = screen.getByRole('tabpanel', { name: '更多功能' })
@@ -88,7 +101,11 @@ describe('SettingsPage', () => {
 
   it('opens the release notes with a pager on the newest version', async () => {
     render(
-      <SettingsPage settings={createFeatureSettings(memoryStorage())} cliPrefs={createCliPrefs(memoryStorage())} />,
+      <SettingsPage
+        settings={createFeatureSettings(memoryStorage())}
+        cliPrefs={createCliPrefs(memoryStorage())}
+        cliSwitches={idleSwitches()}
+      />,
     )
     await userEvent.click(screen.getByRole('tab', { name: '版本记录' }))
     expect(screen.getByRole('tabpanel', { name: '版本记录' })).toBeDefined()
@@ -120,7 +137,8 @@ describe('registerSettingsPage', () => {
     }
     const settings = createFeatureSettings(memoryStorage())
     const cliPrefs = createCliPrefs(memoryStorage())
-    registerSettingsPage(ctx, settings, cliPrefs)
+    const cliSwitches = idleSwitches()
+    registerSettingsPage(ctx, settings, cliPrefs, cliSwitches)
     const [section, icon] = registrations
     expect(section?.options).toMatchObject({
       name: 'settings.section',
@@ -128,7 +146,7 @@ describe('registerSettingsPage', () => {
       order: 50,
       label: 'CC GUI 设置',
     })
-    expect(section?.options.inject?.()).toEqual({ settings, cliPrefs })
+    expect(section?.options.inject?.()).toEqual({ settings, cliPrefs, cliSwitches })
     expect(section?.component).toBe(SettingsPage)
     expect(icon?.options).toEqual({ name: 'settings.section.icon', id: SETTINGS_SECTION_ID })
     expect(icon?.component).toBe(SettingsIcon)
@@ -148,6 +166,7 @@ describe('registerSettingsPage', () => {
       },
       createFeatureSettings(memoryStorage()),
       createCliPrefs(memoryStorage()),
+      idleSwitches(),
     )
     const Component = page?.component as ComponentType<Record<string, unknown>>
     render(<Component {...(page?.inject?.() as Record<string, unknown>)} />)

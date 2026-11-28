@@ -3,10 +3,12 @@
 
 import { act, cleanup, render, screen, within } from '@testing-library/react'
 import { userEvent } from '@testing-library/user-event'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createCliPrefs } from '../../src/client/cli-prefs.ts'
 import type { CliPrefsStorage } from '../../src/client/cli-prefs.ts'
 import { CLI_PREFS_STYLES, CliPrefsSection } from '../../src/client/cli-prefs-section.tsx'
+import type { CliSwitchApi, CliSwitchEntry, CliSwitchReply } from '../../src/client/cli-switch-api.ts'
+import { createCliSwitches } from '../../src/client/cli-switches.ts'
 
 function memoryStorage(): CliPrefsStorage {
   let items: Readonly<Record<string, string>> = {}
@@ -18,18 +20,39 @@ function memoryStorage(): CliPrefsStorage {
   }
 }
 
+const CLAUDE: CliSwitchEntry = { id: 'cli-claude', label: 'Claude Code', enabled: true }
+const CODEX: CliSwitchEntry = { id: 'cli-codex', label: 'Codex CLI', enabled: true }
+
+/** The harness's entry comes from what the switcher saw; the CLIs come from the plugin. */
 function seeded() {
   const prefs = createCliPrefs(memoryStorage())
-  prefs.remember([
-    { id: 'deepseek-official', label: 'DeepSeek' },
-    { id: 'cli-claude', label: 'Claude Code' },
-    { id: 'cli-codex', label: 'Codex CLI' },
-  ])
+  prefs.remember([{ id: 'deepseek-official', label: 'DeepSeek' }, CLAUDE])
   return prefs
+}
+
+/** A plugin that keeps its switches in memory and answers like the route. */
+function plugin(clis: readonly CliSwitchEntry[] = [CLAUDE, CODEX]) {
+  let current = clis
+  const reply = (): CliSwitchReply => ({ clis: current, saved: true })
+  const api: CliSwitchApi = {
+    read: vi.fn(() => Promise.resolve(reply())),
+    set: vi.fn((id: string, enabled: boolean) => {
+      current = current.map((entry) => (entry.id === id ? { ...entry, enabled } : entry))
+      return Promise.resolve(reply())
+    }),
+    adopt: vi.fn(() => Promise.resolve(reply())),
+  }
+  return { api, switches: createCliSwitches(api, () => []) }
 }
 
 function rowNames(): readonly string[] {
   return screen.getAllByRole('listitem').map((row) => row.getAttribute('aria-label') ?? '')
+}
+
+async function renderLoaded(prefs = seeded(), { switches, api } = plugin()) {
+  render(<CliPrefsSection prefs={prefs} switches={switches} />)
+  await screen.findByRole('listitem', { name: 'Codex CLI' })
+  return { prefs, switches, api }
 }
 
 afterEach(() => {
@@ -37,14 +60,19 @@ afterEach(() => {
 })
 
 describe('CliPrefsSection', () => {
-  it('explains where the list comes from before any provider is known', () => {
-    render(<CliPrefsSection prefs={createCliPrefs(memoryStorage())} />)
-    expect(screen.getByText('打开任一会话后，这里会列出可切换的 CLI。')).toBeDefined()
+  it('says it is reading until the plugin answers', () => {
+    const api: CliSwitchApi = {
+      read: () => new Promise(() => undefined),
+      set: vi.fn(),
+      adopt: vi.fn(),
+    }
+    render(<CliPrefsSection prefs={createCliPrefs(memoryStorage())} switches={createCliSwitches(api, () => [])} />)
+    expect(screen.getByText('正在读取 CLI 列表…')).toBeDefined()
     expect(screen.queryByRole('list')).toBeNull()
   })
 
-  it('lists known providers with their marks, disabling moves past either end', () => {
-    render(<CliPrefsSection prefs={seeded()} />)
+  it('lists providers with their marks, disabling moves past either end', async () => {
+    await renderLoaded()
     expect(rowNames()).toEqual(['DeepSeek', 'Claude Code', 'Codex CLI'])
     const [first, , last] = screen.getAllByRole('listitem')
     expect(first?.querySelector('svg')).not.toBeNull()
@@ -57,13 +85,12 @@ describe('CliPrefsSection', () => {
       true,
     )
     expect(CLI_PREFS_STYLES).toContain('.dsh-ccgui-cli-prefs')
-    expect(screen.getByText('输入框 CLI 切换菜单里的顺序和显示的项。关闭的 CLI 不再出现在菜单中。')).toBeDefined()
+    expect(screen.getByText(/关闭的 CLI 不再作为提供方出现/)).toBeDefined()
     expect(screen.getByText('更多 CLI 适配中…')).toBeDefined()
   })
 
   it('reorders providers with the arrow buttons', async () => {
-    const prefs = seeded()
-    render(<CliPrefsSection prefs={prefs} />)
+    const { prefs } = await renderLoaded()
     await userEvent.click(screen.getByRole('button', { name: '上移 Codex CLI' }))
     expect(rowNames()).toEqual(['DeepSeek', 'Codex CLI', 'Claude Code'])
     await userEvent.click(screen.getByRole('button', { name: '下移 DeepSeek' }))
@@ -71,40 +98,43 @@ describe('CliPrefsSection', () => {
     expect(prefs.getSnapshot().order).toEqual(['cli-codex', 'deepseek-official', 'cli-claude'])
   })
 
-  it('drops the row of a provider the switcher stops listing', () => {
+  // A CLI switched off is no provider, so the switcher stops listing it; settings must not.
+  it('keeps listing a CLI the switcher no longer offers', async () => {
     const prefs = seeded()
-    render(<CliPrefsSection prefs={prefs} />)
-    expect(rowNames()).toEqual(['DeepSeek', 'Claude Code', 'Codex CLI'])
+    await renderLoaded(prefs)
     act(() => {
-      prefs.remember([
-        { id: 'deepseek-official', label: 'DeepSeek' },
-        { id: 'cli-claude', label: 'Claude Code' },
-      ])
+      prefs.remember([{ id: 'deepseek-official', label: 'DeepSeek' }])
     })
-    expect(rowNames()).toEqual(['DeepSeek', 'Claude Code'])
+    expect(rowNames()).toEqual(['DeepSeek', 'Claude Code', 'Codex CLI'])
   })
 
-  it('shows the built-in provider without a switch', () => {
-    render(<CliPrefsSection prefs={seeded()} />)
+  it('shows the built-in provider without a switch', async () => {
+    await renderLoaded()
     expect(screen.queryByRole('switch', { name: '启用 DeepSeek' })).toBeNull()
     expect(screen.getByText('内置提供方，始终显示')).toBeDefined()
     expect(screen.getByRole('switch', { name: '启用 Claude Code' })).toBeDefined()
   })
 
-  it('turns a CLI off with visible feedback and back on', async () => {
-    const prefs = seeded()
-    render(<CliPrefsSection prefs={prefs} />)
-    const claude = screen.getByRole('switch', { name: '启用 Claude Code' })
-    expect(claude.getAttribute('title')).toBe('关闭后不再出现在 CLI 菜单')
-    await userEvent.click(claude)
-    expect(prefs.getSnapshot().hidden).toEqual(['cli-claude'])
-    expect(claude.getAttribute('aria-checked')).toBe('false')
-    expect(claude.getAttribute('title')).toBe('开启后重新出现在 CLI 菜单')
-    expect(screen.getByText('已关闭，不在 CLI 菜单中显示')).toBeDefined()
-    // Any CLI can be turned off at once; DeepSeek keeps the switcher from being empty.
+  it('switches a CLI off in the plugin, with the switcher order, and back on', async () => {
+    const { api } = await renderLoaded()
+    const codex = screen.getByRole('switch', { name: '启用 Codex CLI' })
+    expect(codex.getAttribute('title')).toBe('关闭后不再作为提供方出现，正在运行的会话会被停止')
+    await userEvent.click(codex)
+    expect(api.set).toHaveBeenCalledWith('cli-codex', false, ['deepseek-official', 'cli-claude', 'cli-codex'])
+    await vi.waitFor(() => {
+      expect(codex.getAttribute('aria-checked')).toBe('false')
+    })
+    expect(codex.getAttribute('title')).toBe('开启后重新作为提供方出现')
+    expect(screen.getByText('已关闭，不作为提供方出现')).toBeDefined()
+    await userEvent.click(codex)
+    expect(api.set).toHaveBeenLastCalledWith('cli-codex', true, ['deepseek-official', 'cli-claude', 'cli-codex'])
+  })
+
+  it('says why a switch failed', async () => {
+    const { api, switches } = plugin()
+    vi.mocked(api.set).mockRejectedValueOnce(new Error('disk full'))
+    await renderLoaded(seeded(), { api, switches })
     await userEvent.click(screen.getByRole('switch', { name: '启用 Codex CLI' }))
-    expect(prefs.getSnapshot().hidden).toEqual(['cli-claude', 'cli-codex'])
-    await userEvent.click(claude)
-    expect(prefs.getSnapshot().hidden).toEqual(['cli-codex'])
+    expect((await screen.findByRole('alert')).textContent).toBe('CLI 开关出错：disk full')
   })
 })

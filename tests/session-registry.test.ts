@@ -140,6 +140,13 @@ describe('routeAgent', () => {
     expect(agent.model.select).not.toHaveBeenCalled()
   })
 
+  // A CLI switched off is no longer a provider, so selecting it would leave the agent on nothing.
+  it('leaves an agent alone when its preset names a CLI that is switched off', () => {
+    const { agent, registry } = setup({ composedPreset: () => 'cli-x', isEnabled: () => false })
+    registry.routeAgent(agent)
+    expect(agent.model.select).not.toHaveBeenCalled()
+  })
+
   it('leaves agents in other presets alone', () => {
     const { agent, registry } = setup({ composedPreset: () => 'standard' })
     registry.routeAgent(agent)
@@ -538,6 +545,37 @@ describe('fast mode', () => {
     await registry.switchSpeed('dsh-1', 'cli-x', 'on')
     registry.disposeSession('dsh-1')
     expect(registry.speedStateFor('dsh-1', 'cli-x')).toEqual({})
+  })
+})
+
+// Switching a CLI off stops what it is running; other CLIs carry on.
+describe('stopProvider', () => {
+  it('stops every session on that CLI and only those, with the reason', () => {
+    const agents = new Map([
+      ['dsh-1', fakeAgent('dsh-1')],
+      ['dsh-2', fakeAgent('dsh-2')],
+      ['dsh-3', fakeAgent('dsh-3')],
+    ])
+    const sessions: CliSession[] = []
+    const { registry } = setup({
+      getAgent: (id) => agents.get(id),
+      createSession: vi.fn(() => {
+        const session = fakeSession()
+        sessions.push(session)
+        return session
+      }),
+    })
+    registry.resolveSession('cli-x', 'dsh-1')
+    registry.resolveSession('cli-x', 'dsh-2')
+    registry.resolveSession('cli-y', 'dsh-3')
+    registry.stopProvider('cli-x', '已在设置里关闭')
+    expect(sessions.map((session) => vi.mocked(session.dispose).mock.calls)).toEqual([
+      [[false, '已在设置里关闭']],
+      [[false, '已在设置里关闭']],
+      [],
+    ])
+    expect(registry.isLive('dsh-1', 'cli-x')).toBe(false)
+    expect(registry.isLive('dsh-3', 'cli-y')).toBe(true)
   })
 })
 

@@ -3,8 +3,8 @@ import {
   CLI_PREFS_STORAGE_KEY,
   arrangeChoices,
   createCliPrefs,
-  listedEntries,
   parseCliPrefs,
+  settingsEntries,
 } from '../../src/client/cli-prefs.ts'
 import type { CliPrefsSnapshot, CliPrefsStorage } from '../../src/client/cli-prefs.ts'
 
@@ -56,9 +56,9 @@ describe('arrangeChoices', () => {
     expect(arrangeChoices([DEEPSEEK, CLAUDE, CODEX], snapshot({}))).toEqual([DEEPSEEK, CLAUDE, CODEX])
   })
 
-  it('sorts by the saved order, keeps unordered entries after it, and drops hidden ones', () => {
-    const prefs = snapshot({ order: ['cli-codex', 'deepseek-official'], hidden: ['cli-claude'] })
-    expect(arrangeChoices([DEEPSEEK, CLAUDE, CODEX, PI], prefs)).toEqual([CODEX, DEEPSEEK, PI])
+  it('sorts by the saved order and keeps unordered entries after it', () => {
+    const prefs = snapshot({ order: ['cli-codex', 'deepseek-official'] })
+    expect(arrangeChoices([DEEPSEEK, CLAUDE, CODEX, PI], prefs)).toEqual([CODEX, DEEPSEEK, CLAUDE, PI])
   })
 
   // Older versions listed the harness's own providers one by one and let users hide them.
@@ -67,23 +67,31 @@ describe('arrangeChoices', () => {
     expect(parseCliPrefs(raw).hidden).toEqual(['cli-pi'])
   })
 
-  it('keeps the built-in provider even when stored preferences hid it', () => {
+  // The plugin decides which CLIs exist: one switched off is never offered in the first place.
+  it('leaves out nothing, whatever this browser once hid', () => {
     const prefs = snapshot({ hidden: ['deepseek-official', 'cli-claude', 'cli-codex', 'cli-pi'] })
-    expect(arrangeChoices([DEEPSEEK, CLAUDE, CODEX, PI], prefs)).toEqual([DEEPSEEK])
+    expect(arrangeChoices([DEEPSEEK, CLAUDE, CODEX, PI], prefs)).toEqual([DEEPSEEK, CLAUDE, CODEX, PI])
   })
 })
 
-describe('listedEntries', () => {
-  it('lists every known provider in the saved order with its enabled state', () => {
-    const prefs = snapshot({
-      known: [DEEPSEEK, CLAUDE, CODEX],
-      order: ['cli-codex'],
-      hidden: ['cli-claude', 'deepseek-official'],
-    })
-    expect(listedEntries(prefs)).toEqual([
+describe('settingsEntries', () => {
+  // The CLIs come from the plugin, switched off ones included; the harness's entry from the switcher.
+  it("lists the harness's entry and every CLI the plugin reports, in the saved order", () => {
+    const prefs = snapshot({ known: [DEEPSEEK, CLAUDE], order: ['cli-codex'], hidden: ['cli-codex'] })
+    const clis = [
+      { ...CLAUDE, enabled: false },
+      { ...CODEX, enabled: true },
+    ]
+    expect(settingsEntries(prefs, clis)).toEqual([
       { ...CODEX, enabled: true },
       { ...DEEPSEEK, enabled: true },
       { ...CLAUDE, enabled: false },
+    ])
+  })
+
+  it("lists only the harness's entry before the plugin answers", () => {
+    expect(settingsEntries(snapshot({ known: [DEEPSEEK, CLAUDE] }), undefined)).toEqual([
+      { ...DEEPSEEK, enabled: true },
     ])
   })
 })
@@ -123,47 +131,24 @@ describe('createCliPrefs', () => {
 
   it('moves a provider up or down, ignoring moves past either end', () => {
     const prefs = createCliPrefs(memoryStorage())
-    prefs.remember([DEEPSEEK, CLAUDE, CODEX])
-    prefs.move('cli-codex', -1)
-    expect(listedEntries(prefs.getSnapshot()).map((entry) => entry.id)).toEqual([
-      'deepseek-official',
-      'cli-codex',
-      'cli-claude',
-    ])
+    // A CLI switched off is listed on the settings page too, though the switcher never saw it.
+    const listed = ['deepseek-official', 'cli-claude', 'cli-codex']
+    prefs.remember([DEEPSEEK, CLAUDE])
+    prefs.move('cli-codex', -1, listed)
+    expect(prefs.getSnapshot().order).toEqual(['deepseek-official', 'cli-codex', 'cli-claude'])
     const before = prefs.getSnapshot()
-    prefs.move('deepseek-official', -1)
-    prefs.move('cli-claude', 1)
-    prefs.move('unknown', 1)
+    prefs.move('deepseek-official', -1, listed)
+    prefs.move('cli-codex', 1, listed)
+    prefs.move('unknown', 1, listed)
     expect(prefs.getSnapshot()).toBe(before)
   })
 
-  it('hides and shows any CLI, but never the built-in provider', () => {
-    const prefs = createCliPrefs(memoryStorage())
-    prefs.remember([DEEPSEEK, CLAUDE, CODEX])
-    prefs.setEnabled('deepseek-official', false)
-    prefs.setEnabled('deepseek-account', false)
-    expect(prefs.getSnapshot().hidden).toEqual([])
-    prefs.setEnabled('cli-claude', false)
-    prefs.setEnabled('cli-codex', false)
-    expect(prefs.getSnapshot().hidden).toEqual(['cli-claude', 'cli-codex'])
-    expect(arrangeChoices([DEEPSEEK, CLAUDE, CODEX], prefs.getSnapshot())).toEqual([DEEPSEEK])
-    prefs.setEnabled('cli-claude', true)
-    expect(prefs.getSnapshot().hidden).toEqual(['cli-codex'])
-    const before = prefs.getSnapshot()
-    prefs.setEnabled('cli-claude', true)
-    expect(prefs.getSnapshot()).toBe(before)
-  })
-
-  it('hides a CLI that starts hidden when first seen, until the user turns it on', () => {
-    const codebuddy = { id: 'cli-codebuddy', label: 'CodeBuddy CLI' }
-    const prefs = createCliPrefs(memoryStorage())
-    prefs.remember([DEEPSEEK, CLAUDE, codebuddy])
-    expect(prefs.getSnapshot().hidden).toEqual(['cli-codebuddy'])
-    expect(arrangeChoices([DEEPSEEK, CLAUDE, codebuddy], prefs.getSnapshot())).toEqual([DEEPSEEK, CLAUDE])
-    expect(listedEntries(prefs.getSnapshot()).find((entry) => entry.id === 'cli-codebuddy')?.enabled).toBe(false)
-    prefs.setEnabled('cli-codebuddy', true)
-    prefs.remember([DEEPSEEK, CLAUDE, codebuddy])
-    expect(prefs.getSnapshot().hidden).toEqual([])
+  // The plugin hands this list over once; the switcher itself no longer reads it.
+  it('keeps the list of CLIs this browser once left out, without adding to it', () => {
+    const stored = snapshot({ known: [DEEPSEEK], hidden: ['cli-claude'] })
+    const prefs = createCliPrefs(memoryStorage({ [CLI_PREFS_STORAGE_KEY]: JSON.stringify(stored) }))
+    prefs.remember([DEEPSEEK, CLAUDE, { id: 'cli-codebuddy', label: 'CodeBuddy CLI' }])
+    expect(prefs.getSnapshot().hidden).toEqual(['cli-claude'])
   })
 
   // Kimi has been verified with a real account, so it shows from the start.
@@ -173,19 +158,14 @@ describe('createCliPrefs', () => {
     expect(prefs.getSnapshot().hidden).toEqual([])
   })
 
-  it('forgets a provider the switcher stops offering, keeping the stored order and choice', () => {
+  it('forgets a provider the switcher stops offering, keeping the stored order', () => {
     const prefs = createCliPrefs(memoryStorage())
     prefs.remember([DEEPSEEK, CLAUDE, CODEX])
-    prefs.move('cli-codex', -1)
-    prefs.setEnabled('cli-claude', false)
+    prefs.move('cli-codex', -1, ['deepseek-official', 'cli-claude', 'cli-codex'])
     prefs.remember([DEEPSEEK, CODEX])
     expect(prefs.getSnapshot().known).toEqual([DEEPSEEK, CODEX])
+    // A CLI switched off comes back in the place the user gave it.
     expect(prefs.getSnapshot().order).toEqual(['deepseek-official', 'cli-codex', 'cli-claude'])
-    expect(prefs.getSnapshot().hidden).toEqual(['cli-claude'])
-    expect(listedEntries(prefs.getSnapshot()).map((entry) => entry.id)).toEqual(['deepseek-official', 'cli-codex'])
-    // The provider coming back carries the choice the user made before it left.
-    prefs.remember([DEEPSEEK, CLAUDE, CODEX])
-    expect(listedEntries(prefs.getSnapshot()).find((entry) => entry.id === 'cli-claude')?.enabled).toBe(false)
   })
 
   it('keeps the list while the switcher has not listed any provider', () => {

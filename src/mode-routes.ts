@@ -12,6 +12,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { LlmError } from '@deepseek-ai/dsh-llm'
 import { MODE_ROUTE_PREFIX } from './constants.ts'
 import type { CliModeList, CliSpeedList } from './model-options.ts'
+import { BodyTooLarge, isObject, isText, messageOf, readJson, sendJson } from './route-json.ts'
 
 /** The parts of the harness's `webServer` service this module uses. */
 export interface ModeWebServer {
@@ -50,10 +51,6 @@ const MAX_BODY_BYTES = 8 * 1024
 const MODE_FAILED = '切换模式失败，请查看日志'
 const SPEED_FAILED = '切换快速模式失败，请查看日志'
 
-class BodyTooLarge extends Error {
-  override name = 'BodyTooLarge'
-}
-
 interface RequestFields {
   readonly sessionId: string
   readonly provider: string
@@ -61,26 +58,6 @@ interface RequestFields {
   readonly mode: string | undefined
   /** Absent unless the caller switches the fast mode. */
   readonly speed: string | undefined
-}
-
-const isText = (value: unknown): value is string => typeof value === 'string' && value.length > 0
-const isObject = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null
-
-function sendJson(res: ServerResponse, status: number, payload: unknown, headers: Record<string, string> = {}): void {
-  res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', ...headers })
-  res.end(JSON.stringify(payload))
-}
-
-async function readJson(req: IncomingMessage): Promise<unknown> {
-  const chunks: Buffer[] = []
-  let size = 0
-  for await (const chunk of req) {
-    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk))
-    size += buffer.length
-    if (size > MAX_BODY_BYTES) throw new BodyTooLarge('请求内容过大')
-    chunks.push(buffer)
-  }
-  return JSON.parse(Buffer.concat(chunks).toString('utf8'))
 }
 
 /** Read the one body shape this route accepts. */
@@ -95,10 +72,6 @@ function fieldsOf(body: unknown): RequestFields | undefined {
 async function sendPicks(routes: ModeRoutes, { sessionId, provider, mode, speed }: RequestFields): Promise<void> {
   if (mode !== undefined) await routes.switchMode(sessionId, provider, mode)
   if (speed !== undefined) await routes.switchSpeed(sessionId, provider, speed)
-}
-
-function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
 }
 
 /**
@@ -125,7 +98,7 @@ export function modeHandler(
     }
     let fields: RequestFields | undefined
     try {
-      fields = fieldsOf(await readJson(req))
+      fields = fieldsOf(await readJson(req, MAX_BODY_BYTES))
     } catch (error: unknown) {
       const tooLarge = error instanceof BodyTooLarge
       sendJson(res, tooLarge ? 413 : 400, { success: false, error: tooLarge ? '请求内容过大' : '请求格式不正确' })

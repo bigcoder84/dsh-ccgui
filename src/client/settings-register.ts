@@ -6,6 +6,7 @@
  */
 
 import type { CliPrefs } from './cli-prefs.ts'
+import type { CliSwitches } from './cli-switches.ts'
 import { whileEnabled } from './feature-settings.ts'
 import type { FeatureId, FeatureSettings } from './feature-settings.ts'
 import { SETTINGS_TITLE, SettingsIcon, SettingsPage } from './settings-page.tsx'
@@ -51,9 +52,15 @@ function isDisposable(value: unknown): value is Disposable {
  * plugin; the dialog owns the chrome, scrolling and title, and the section renders only content.
  * @param ctx - the plugin's client context.
  * @param settings - the feature settings the page edits.
- * @param cliPrefs - the CLI switcher preferences the page edits.
+ * @param cliPrefs - the CLI switcher order the page edits.
+ * @param cliSwitches - the plugin's CLI switches the page edits.
  */
-export function registerSettingsPage(ctx: SettingsContext, settings: FeatureSettings, cliPrefs: CliPrefs): void {
+export function registerSettingsPage(
+  ctx: SettingsContext,
+  settings: FeatureSettings,
+  cliPrefs: CliPrefs,
+  cliSwitches: CliSwitches,
+): void {
   ctx.slots.inject('settings.section', () =>
     ctx.slots.register(
       {
@@ -61,7 +68,7 @@ export function registerSettingsPage(ctx: SettingsContext, settings: FeatureSett
         id: SETTINGS_SECTION_ID,
         order: SETTINGS_ORDER,
         label: SETTINGS_TITLE,
-        inject: () => ({ settings, cliPrefs }),
+        inject: () => ({ settings, cliPrefs, cliSwitches }),
       },
       SettingsPage,
     ),

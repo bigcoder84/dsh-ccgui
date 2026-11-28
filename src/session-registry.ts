@@ -55,6 +55,8 @@ export interface RegistryDeps {
   warn(message: string): void
   /** Someone chose this CLI, so starting it is now acceptable. */
   onCliSelected(provider: string): void
+  /** Whether a CLI is switched on; one switched off is not a provider. Every CLI is on when absent. */
+  isEnabled?(provider: string): boolean
   createSession(config: CliAgentConfig, sessionId: string, cwd: string, start: SessionStart): CliSession
 }
 
@@ -150,7 +152,9 @@ export class CliSessionRegistry {
    */
   routeAgent(agent: Agent): void {
     const preset = this.deps.composedPreset(agent)
-    if (preset !== undefined && this.agentsByProvider.has(preset) && agent.model.current()?.provider !== preset) {
+    const routable =
+      preset !== undefined && this.agentsByProvider.has(preset) && this.deps.isEnabled?.(preset) !== false
+    if (routable && agent.model.current()?.provider !== preset) {
       agent.model.select({ provider: preset, model: DEFAULT_MODEL_ID })
     }
     this.noticeSelection(agent.model.current()?.provider)
@@ -327,6 +331,18 @@ export class CliSessionRegistry {
     this.turnMessages = without(this.turnMessages, sessionId)
     this.picks = { mode: without(this.picks.mode, sessionId), speed: without(this.picks.speed, sessionId) }
     this.stopSession(sessionId)
+  }
+
+  /**
+   * Stop every session on one CLI, as when it is switched off. The harness sessions stay;
+   * they cannot run on that CLI again until it is switched back on.
+   * @param provider - the CLI route.
+   * @param reason - why, shown to any turn this cuts off.
+   */
+  stopProvider(provider: string, reason: string): void {
+    for (const [sessionId, live] of this.sessions) {
+      if (live.provider === provider) this.stopSession(sessionId, reason)
+    }
   }
 
   /**

@@ -21,6 +21,8 @@ import { registerAddToChat } from './add-to-chat.tsx'
 import type { AddToChatContext } from './add-to-chat.tsx'
 import { cliChoices, selectionForChoice } from './choices.ts'
 import { arrangeChoices, createCliPrefs } from './cli-prefs.ts'
+import { createCliSwitchApi } from './cli-switch-api.ts'
+import { createCliSwitches } from './cli-switches.ts'
 import type { CliPrefs, CliPrefsStorage } from './cli-prefs.ts'
 import type { DirectorySelection, DirectoryState } from './choices.ts'
 import { ProviderMark } from './marks.tsx'
@@ -407,7 +409,12 @@ export function apply(ctx: ClientContext): void {
   registerModeSeat(ctx)
   registerSessionMarks(ctx)
   const settings = createFeatureSettings(BROWSER_STORAGE)
-  registerSettingsPage(ctx, settings, cliPrefs)
+  // window.fetch needs its receiver, so it is wrapped rather than passed bare.
+  const cliSwitches = createCliSwitches(
+    createCliSwitchApi((input, init) => window.fetch(input, init)),
+    () => cliPrefs.getSnapshot().hidden,
+  )
+  registerSettingsPage(ctx, settings, cliPrefs, cliSwitches)
   registerSwitchableFeatures(ctx, settings)
   registerAddToChat(ctx)
 }

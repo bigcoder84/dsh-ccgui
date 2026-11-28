@@ -295,15 +295,21 @@ describe('CliSwitcher', () => {
     ])
   })
 
-  it('follows the saved order and leaves out disabled providers', async () => {
+  // A CLI switched off is no provider, so the directory never offers it; the list this browser
+  // kept before the plugin owned the switches no longer leaves anything out.
+  it('follows the saved order, leaving out nothing the directory offers', async () => {
     window.localStorage.setItem(
       CLI_PREFS_STORAGE_KEY,
-      JSON.stringify({ known: [], order: ['deepseek-official', 'cli-claude'], hidden: ['cli-codex'] }),
+      JSON.stringify({ known: [], order: ['deepseek-official', 'cli-codex'], hidden: ['cli-codex'] }),
     )
     renderSlot(harness(), 'dsh-ccgui.switcher')
     await userEvent.click(switcher())
     const items = screen.getAllByRole('menuitemradio')
-    expect(items.map((item) => item.getAttribute('data-item-id'))).toEqual(['deepseek-official', 'cli-claude'])
+    expect(items.map((item) => item.getAttribute('data-item-id'))).toEqual([
+      'deepseek-official',
+      'cli-codex',
+      'cli-claude',
+    ])
   })
 })
 

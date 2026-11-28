@@ -4,6 +4,7 @@
  * @module dsh-ccgui
  */
 
+import { readFileSync } from 'node:fs'
 import { mkdir } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
@@ -19,6 +20,11 @@ import type {} from '@deepseek-ai/dsh-subprocess'
 import type { ToolRunContext } from '@deepseek-ai/dsh-tools'
 import type { ApprovalOutcome } from '@deepseek-ai/dsh-user-approval'
 import { CliBridgeAdapter } from './adapter.ts'
+import { AtomicFile } from './atomic-file.ts'
+import { CliSwitchBridge } from './cli-switch-bridge.ts'
+import { registerCliSwitchRoute } from './cli-switch-routes.ts'
+import { CliSwitches, formatSwitches, parseSwitches } from './cli-switches.ts'
+import { readDefaultModel } from './default-fallback.ts'
 import { CliSession } from './cli-session.ts'
 import type { PermissionAsk } from './cli-session.ts'
 import { createCliTool } from './cli-tool.ts'
@@ -67,6 +73,7 @@ declare module '@deepseek-ai/cordis' {
 const PLUGIN_STOPPED_REASON = 'dsh-ccgui 插件已停止或重新加载（例如插件更新后），这条回复没有完成，请重新发送。'
 const PLUGIN_HOME = 'ccgui'
 const MODEL_CACHE_FILE = 'models.json'
+const CLI_SWITCHES_FILE = 'cli-switches.json'
 const MODEL_PROBE_DIR = 'model-probe'
 
 /** Plugin configuration. */
@@ -124,6 +131,7 @@ export default class CliBridge extends Service {
 
   private readonly registry: CliSessionRegistry
   private readonly catalog: CliModelCatalog
+  private readonly switches: CliSwitchBridge
   /** Ends any model probe still running when this plugin goes away. */
   private readonly probes = new AbortController()
   private readonly askPolicy = new CliAskPolicy((message) => this.ctx.logger.warn(message))
@@ -144,7 +152,9 @@ export default class CliBridge extends Service {
     })
     // Started first so the answer is likely in before the first CLI starts; until then the fallback holds.
     void this.loginPath.load(this.probes.signal)
+    const switches = this.loadSwitches(config.agents)
     this.registry = new CliSessionRegistry(config.agents, {
+      isEnabled: (provider) => switches.isEnabled(provider),
       getAgent: (sessionId) => ctx.agents.get(sessionId as SessionId),
       composedPreset: (agent) => ctx.get('agentPresets')?.composedPreset(agent.ctx),
       // Read per step: the runtime is another plugin's service and may be reloaded.
@@ -164,10 +174,36 @@ export default class CliBridge extends Service {
       warn: (message) => ctx.logger.warn(message),
       save: (lists) => modelCache.save(lists),
     })
+    this.switches = new CliSwitchBridge({
+      switches,
+      registry: this.registry,
+      register: (providers) => ctx.llm.registerAdapter(providers, this.createAdapter()),
+      defaults: () => readDefaultModel(ctx.get('agentDefaultModel')),
+      firstModel: (provider) => this.firstModel(provider),
+    })
     this.restoreModels(modelCache)
     this.registerRoutes()
     this.followSessions()
     this.serveWebRoutes()
+  }
+
+  /**
+   * Read the CLI switches before any provider is registered, so a CLI switched off never shows
+   * up for a moment at startup. The file is small and read once, hence synchronously.
+   */
+  private loadSwitches(agents: readonly CliAgentConfig[]): CliSwitches {
+    const path = this.homePath(PLUGIN_HOME, CLI_SWITCHES_FILE)
+    let text: string | undefined
+    try {
+      text = readFileSync(path, 'utf8')
+    } catch (error: unknown) {
+      // No file yet means no choice saved yet; the defaults stand until the first one.
+      if ((error as { code?: unknown }).code !== 'ENOENT')
+        this.ctx.logger.warn(`ccgui: could not read ${path}: ${String(error)}`)
+    }
+    const file = new AtomicFile(path)
+    const providers = agents.map((agent) => cliRoute(agent.id))
+    return new CliSwitches(providers, parseSwitches(text), (disabled) => file.write(formatSwitches(disabled)))
   }
 
   /** Read in the background: the menu works without it, and fills in once it arrives. */
@@ -212,30 +248,35 @@ export default class CliBridge extends Service {
           ),
         'ccgui: mode route',
       )
+      child.effect(
+        () => registerCliSwitchRoute(child.webServer, this.switches, child.connection, (m) => child.logger.warn(m)),
+        'ccgui: CLI switch route',
+      )
     })
   }
 
+  /** Only the CLIs switched on become providers; the switch bridge keeps that set current. */
   private registerRoutes(): void {
-    const { ctx, registry, catalog } = this
-    if (registry.providers.length > 0) {
-      ctx.llm.registerAdapter(
-        [...registry.providers],
-        new CliBridgeAdapter({
-          labelFor: (provider) => registry.labelFor(provider),
-          resolveSession: (provider, sessionId) => registry.resolveSession(provider, sessionId),
-          ptcWrapFor: (provider, sessionId) => registry.ptcWrapFor(provider, sessionId),
-          currentTurnMessageIds: (sessionId) => registry.currentTurnMessageIds(sessionId),
-          modelsFor: (provider) => catalog.listModels(provider),
-          modelName: (provider, model) => catalog.modelName(provider, model),
-          reasoningFor: (provider, model) => catalog.reasoning(provider, model),
-          auxiliaryStream: (options) => this.auxiliaryStream(options),
-        }),
-      )
-    }
+    const { ctx, registry } = this
+    this.switches.publish()
     // Admitted only for steps a CLI runs, so no other model ever sees this tool, and a
     // CLI works from any mode without its calls needing a preset of their own.
     ctx.tools.register(createCliTool({ waitForTool: (exec) => registry.waitForTool(exec) }), {
       when: ({ modelSelection }) => registry.isCliRoute(modelSelection.provider),
+    })
+  }
+
+  private createAdapter(): CliBridgeAdapter {
+    const { registry, catalog } = this
+    return new CliBridgeAdapter({
+      labelFor: (provider) => registry.labelFor(provider),
+      resolveSession: (provider, sessionId) => registry.resolveSession(provider, sessionId),
+      ptcWrapFor: (provider, sessionId) => registry.ptcWrapFor(provider, sessionId),
+      currentTurnMessageIds: (sessionId) => registry.currentTurnMessageIds(sessionId),
+      modelsFor: (provider) => catalog.listModels(provider),
+      modelName: (provider, model) => catalog.modelName(provider, model),
+      reasoningFor: (provider, model) => catalog.reasoning(provider, model),
+      auxiliaryStream: (options) => this.auxiliaryStream(options),
     })
   }
 

@@ -11,6 +11,7 @@
 import type { ReactElement } from 'react'
 import { IconSlidersTwoOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { CliPrefs } from './cli-prefs.ts'
+import type { CliSwitches } from './cli-switches.ts'
 import { CLI_PREFS_STYLES, CliPrefsSection } from './cli-prefs-section.tsx'
 import type { FeatureSettings } from './feature-settings.ts'
 import { FeaturesSection } from './features-section.tsx'
@@ -48,18 +49,21 @@ ${SETTINGS_TABS_STYLES}${CLI_PREFS_STYLES}${SETTINGS_ABOUT_STYLES}${MORE_SECTION
 
 /**
  * @param props.settings - the feature settings the switches read and write.
- * @param props.cliPrefs - the CLI switcher preferences the CLI list reads and writes.
+ * @param props.cliPrefs - the CLI switcher order the CLI list reads and writes.
+ * @param props.cliSwitches - the plugin's CLI switches the CLI list reads and writes.
  * @returns the settings page.
  */
 export function SettingsPage({
   settings,
   cliPrefs,
+  cliSwitches,
 }: {
   readonly settings: FeatureSettings
   readonly cliPrefs: CliPrefs
+  readonly cliSwitches: CliSwitches
 }): ReactElement {
   const tabs: readonly SettingsTab[] = [
-    { id: 'cli', label: CLI_TAB_LABEL, render: () => <CliPrefsSection prefs={cliPrefs} /> },
+    { id: 'cli', label: CLI_TAB_LABEL, render: () => <CliPrefsSection prefs={cliPrefs} switches={cliSwitches} /> },
     { id: 'features', label: FEATURES_TAB_LABEL, render: () => <FeaturesSection settings={settings} /> },
     { id: 'more', label: MORE_TAB_LABEL, render: () => <MoreSection /> },
     { id: 'notes', label: NOTES_TAB_LABEL, render: () => <ReleaseNotesSection /> },

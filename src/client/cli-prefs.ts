@@ -1,13 +1,15 @@
 /**
- * The user's order for the composer's CLI switcher and which providers it leaves out, edited
- * on the settings page. The harness only lists providers per session, so the switcher reports
- * the ones it sees and they are kept here; that is how the settings page knows what to list
- * even when no session is open. A provider the switcher stops reporting is forgotten, so a CLI
- * taken out of the plugin's configuration leaves the settings page with it.
+ * The user's order for the composer's CLI switcher, edited on the settings page. The harness
+ * only lists providers per session, so the switcher reports the ones it sees and they are kept
+ * here; that is how the settings page knows the harness's own entry even when no session is
+ * open. Which CLIs exist is the plugin's to say (see cli-switches.ts): a CLI switched off is no
+ * provider at all. The list of CLIs this browser once left out is still read, so the plugin
+ * can take it over once.
  * @module dsh-ccgui/client/cli-prefs
  */
 
-import { CLI_ROUTE_PREFIX, cliRoute } from '../constants.ts'
+import { CLI_ROUTE_PREFIX } from '../constants.ts'
+import type { CliSwitchEntry } from './cli-switch-api.ts'
 import type { Store } from './store.ts'
 
 /** A provider as the switcher lists it. */
@@ -26,7 +28,7 @@ export interface CliPrefsSnapshot {
   readonly known: readonly CliChoice[]
   /** Ids in the user's order; providers missing here follow in the directory's order. */
   readonly order: readonly string[]
-  /** Ids left out of the switcher; kept for a provider that is not offered right now. */
+  /** CLIs this browser left out before the plugin owned the switches; only read, to hand over. */
   readonly hidden: readonly string[]
 }
 
@@ -39,9 +41,11 @@ export interface CliPrefsStorage {
 export interface CliPrefs extends Store<CliPrefsSnapshot> {
   /** Record the providers a switcher was given, forgetting those it no longer offers. */
   remember(choices: readonly CliChoice[]): void
-  /** Move a provider one place up (-1) or down (1) in the settings list. */
-  move(id: string, delta: -1 | 1): void
-  setEnabled(id: string, enabled: boolean): void
+  /**
+   * Move a provider one place up (-1) or down (1).
+   * @param listed - the ids as the settings page lists them, which the new order is made from.
+   */
+  move(id: string, delta: -1 | 1, listed: readonly string[]): void
 }
 
 export const CLI_PREFS_STORAGE_KEY = 'dsh-ccgui.cli-prefs'
@@ -55,13 +59,6 @@ export const CLI_PREFS_STORAGE_KEY = 'dsh-ccgui.cli-prefs'
  * @returns true for the harness's entry.
  */
 export const isBuiltInChoice = (id: string): boolean => !id.startsWith(CLI_ROUTE_PREFIX)
-
-/**
- * CLIs that start out of the switcher. CodeBuddy is bundled but not yet verified with a real
- * account, so users only get it once they turn it on in settings; the backend still runs it.
- * Applied when a provider is first seen, so a user's later choice is never overridden.
- */
-const HIDDEN_BY_DEFAULT: ReadonlySet<string> = new Set([cliRoute('codebuddy')])
 
 const EMPTY: CliPrefsSnapshot = { known: [], order: [], hidden: [] }
 
@@ -114,27 +111,31 @@ function sortByOrder<T extends CliChoice>(items: readonly T[], order: readonly s
 }
 
 /**
- * Apply the preferences to what a switcher would list.
+ * Order what a switcher would list. Nothing is left out here: a CLI switched off is not a
+ * provider, so the directory never offers it.
  * @param items - the directory's providers, in its order.
  * @param prefs - the preferences.
- * @returns the providers to show, in the user's order.
+ * @returns the providers in the user's order.
  */
 export function arrangeChoices<T extends CliChoice>(items: readonly T[], prefs: CliPrefsSnapshot): readonly T[] {
-  return sortByOrder(
-    items.filter((item) => isBuiltInChoice(item.id) || !prefs.hidden.includes(item.id)),
-    prefs.order,
-  )
+  return sortByOrder(items, prefs.order)
 }
 
 /**
+ * The settings page's rows: the harness's own entry as the switcher last saw it, and every
+ * configured CLI as the plugin lists it, on or off, in the user's order.
  * @param prefs - the preferences.
- * @returns every offered provider in the user's order, with whether the switcher shows it.
+ * @param clis - the plugin's CLIs, or undefined before it has answered.
+ * @returns the rows.
  */
-export function listedEntries(prefs: CliPrefsSnapshot): readonly CliEntry[] {
-  return sortByOrder(prefs.known, prefs.order).map((choice) => ({
-    ...choice,
-    enabled: isBuiltInChoice(choice.id) || !prefs.hidden.includes(choice.id),
-  }))
+export function settingsEntries(
+  prefs: CliPrefsSnapshot,
+  clis: readonly CliSwitchEntry[] | undefined,
+): readonly CliEntry[] {
+  const builtIn = prefs.known
+    .filter((choice) => isBuiltInChoice(choice.id))
+    .map((choice) => ({ ...choice, enabled: true }))
+  return sortByOrder([...builtIn, ...(clis ?? [])], prefs.order)
 }
 
 function rememberChoices(prefs: CliPrefsSnapshot, seen: readonly CliChoice[]): CliPrefsSnapshot {
@@ -150,28 +151,16 @@ function rememberChoices(prefs: CliPrefsSnapshot, seen: readonly CliChoice[]): C
   const dropped = known.length !== prefs.known.length
   const relabelled = renamed.some((choice, index) => choice.label !== prefs.known[index]?.label)
   if (!dropped && added.length === 0 && !relabelled) return prefs
-  const startHidden = added.filter((choice) => HIDDEN_BY_DEFAULT.has(choice.id)).map((choice) => choice.id)
-  const hidden = [...prefs.hidden, ...startHidden.filter((id) => !prefs.hidden.includes(id))]
-  return { ...prefs, known: [...renamed, ...added], hidden }
+  return { ...prefs, known: [...renamed, ...added] }
 }
 
-function moveChoice(prefs: CliPrefsSnapshot, id: string, delta: -1 | 1): CliPrefsSnapshot {
+function moveChoice(prefs: CliPrefsSnapshot, id: string, delta: -1 | 1, ids: readonly string[]): CliPrefsSnapshot {
   // Moving writes out the whole list, so later additions land after what the user arranged.
-  const ids = listedEntries(prefs).map((entry) => entry.id)
   const from = ids.indexOf(id)
   const to = from + delta
   if (from === -1 || to < 0 || to >= ids.length) return prefs
   const other = ids[to] ?? id
   return { ...prefs, order: ids.map((candidate, index) => (index === from ? other : index === to ? id : candidate)) }
-}
-
-function enableChoice(prefs: CliPrefsSnapshot, id: string, enabled: boolean): CliPrefsSnapshot {
-  // The harness's entry has no switch on the settings page, and a stale preference must not
-  // take it out of the switcher.
-  if (isBuiltInChoice(id)) return prefs
-  const hidden = prefs.hidden.includes(id)
-  if (enabled) return hidden ? { ...prefs, hidden: prefs.hidden.filter((candidate) => candidate !== id) } : prefs
-  return hidden ? prefs : { ...prefs, hidden: [...prefs.hidden, id] }
 }
 
 function readPrefs(storage: CliPrefsStorage): CliPrefsSnapshot {
@@ -211,11 +200,8 @@ export function createCliPrefs(storage: CliPrefsStorage): CliPrefs {
     remember: (seen) => {
       update(rememberChoices(prefs, seen))
     },
-    move: (id, delta) => {
-      update(moveChoice(prefs, id, delta))
-    },
-    setEnabled: (id, enabled) => {
-      update(enableChoice(prefs, id, enabled))
+    move: (id, delta, listed) => {
+      update(moveChoice(prefs, id, delta, listed))
     },
   }
 }

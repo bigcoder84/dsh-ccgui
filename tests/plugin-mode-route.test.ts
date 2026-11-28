@@ -69,7 +69,7 @@ describe('CliBridge mode route', () => {
     })
     h.root.provide('connection', { requestRejection: () => undefined })
     await vi.waitFor(() => {
-      expect(routes.map((route) => route.path)).toEqual(['/dsh-ccgui/git', '/dsh-ccgui/modes'])
+      expect(routes.map((route) => route.path)).toEqual(['/dsh-ccgui/git', '/dsh-ccgui/modes', '/dsh-ccgui/clis'])
     })
     return routes[1] as Route
   }

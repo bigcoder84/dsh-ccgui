@@ -102,8 +102,14 @@ export function harness({ homePath = true }: { homePath?: boolean } = {}): Harne
   root.on('llm/models-updated', (provider) => modelUpdates.push(provider))
   root.provide('llm', {
     registerAdapter: (providers: string[], adapter: LlmAdapter) => {
-      adapters.push({ providers, adapter })
-      return () => undefined
+      const entry = { providers, adapter }
+      adapters.push(entry)
+      // Like the harness's handle: a disposer that can also swap the routes it holds.
+      return Object.assign(() => undefined, {
+        replace: (next: string[]) => {
+          entry.providers = next
+        },
+      })
     },
     listProviders: () => review.providers.map((id) => ({ id, name: id })),
     listModels: (provider: string) =>

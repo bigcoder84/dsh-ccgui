@@ -64,3 +64,9 @@ export const MODE_ROUTE_PREFIX = '/dsh-ccgui/modes'
  */
 export const FAST_MODE_ON = 'on'
 export const FAST_MODE_OFF = 'off'
+
+/**
+ * The route the settings page's CLI list posts to: it lists every configured CLI with its
+ * switch, and switches one on or off.
+ */
+export const CLI_SWITCH_ROUTE = '/dsh-ccgui/clis'

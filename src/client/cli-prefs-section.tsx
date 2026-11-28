@@ -1,9 +1,10 @@
 /**
- * The settings page's CLI 列表 tab: the order of the composer's CLI switcher and which providers
- * it shows.
+ * The settings page's CLI 列表 tab: the order of the composer's CLI switcher, and which CLIs
+ * the plugin offers at all. A CLI switched off here is no provider anywhere in the harness.
  * @module dsh-ccgui/client/cli-prefs-section
  */
 
+import { useEffect } from 'react'
 import type { ReactElement } from 'react'
 import {
   Button,
@@ -11,17 +12,19 @@ import {
   IconChevronUpOutlineRegular,
   Switch,
 } from '@deepseek-ai/dsh-client-ui-primitives'
-import { isBuiltInChoice, listedEntries } from './cli-prefs.ts'
+import { isBuiltInChoice, settingsEntries } from './cli-prefs.ts'
 import type { CliEntry, CliPrefs } from './cli-prefs.ts'
+import type { CliSwitches } from './cli-switches.ts'
 import { ProviderMark } from './marks.tsx'
 import { useStore } from './store.ts'
 
-const SECTION_INTRO = '输入框 CLI 切换菜单里的顺序和显示的项。关闭的 CLI 不再出现在菜单中。'
-const EMPTY_HINT = '打开任一会话后，这里会列出可切换的 CLI。'
-const OFF_HINT = '已关闭，不在 CLI 菜单中显示'
+const SECTION_INTRO = '输入框 CLI 切换菜单里的顺序，以及启用哪些 CLI。关闭的 CLI 不再作为提供方出现在 DSH 的任何地方。'
+const EMPTY_HINT = '正在读取 CLI 列表…'
+const OFF_HINT = '已关闭，不作为提供方出现'
 const LOCKED_HINT = '内置提供方，始终显示'
-const SWITCH_ON_TITLE = '关闭后不再出现在 CLI 菜单'
-const SWITCH_OFF_TITLE = '开启后重新出现在 CLI 菜单'
+const SWITCH_ON_TITLE = '关闭后不再作为提供方出现，正在运行的会话会被停止'
+const SWITCH_OFF_TITLE = '开启后重新作为提供方出现'
+const FAILURE_PREFIX = 'CLI 开关出错：'
 const MORE_CLIS_HINT = '更多 CLI 适配中…'
 const MARK_SIZE = 16
 const ARROW_SIZE = 14
@@ -35,21 +38,21 @@ export const CLI_PREFS_STYLES = `
 .${SECTION_CLASS}-off { color: var(--dsw-alias-label-tertiary, var(--dsw-alias-label-secondary)); font-size: 12px; line-height: 18px; }
 .${SECTION_CLASS}-locked { flex: 0 0 auto; color: var(--dsw-alias-label-tertiary, var(--dsw-alias-label-secondary)); font-size: 12px; line-height: 18px; }
 .${SECTION_CLASS}-moves { display: flex; gap: 2px; }
+.${SECTION_CLASS}-failure { margin: 8px 0 0; color: var(--dsw-alias-state-danger, var(--dsw-alias-label-secondary)); font-size: 12px; line-height: 18px; }
 .${SECTION_CLASS}-more { display: flex; align-items: center; gap: 10px; margin: 14px 0 0; color: var(--dsw-alias-label-tertiary, var(--dsw-alias-label-secondary)); font-size: 12px; line-height: 18px; }
 .${SECTION_CLASS}-more::before, .${SECTION_CLASS}-more::after { content: ''; flex: 1; border-top: 1px dashed var(--dsw-alias-border-l2); }
 `
 
-function MoveButtons({
-  entry,
-  first,
-  last,
-  prefs,
-}: {
+interface RowProps {
   readonly entry: CliEntry
   readonly first: boolean
   readonly last: boolean
   readonly prefs: CliPrefs
-}) {
+  /** The ids as listed, which a move reorders. */
+  readonly listed: readonly string[]
+}
+
+function MoveButtons({ entry, first, last, prefs, listed }: RowProps) {
   return (
     <span className={`${SECTION_CLASS}-moves`}>
       <Button
@@ -58,7 +61,7 @@ function MoveButtons({
         disabled={first}
         icon={<IconChevronUpOutlineRegular size={ARROW_SIZE} />}
         onClick={() => {
-          prefs.move(entry.id, -1)
+          prefs.move(entry.id, -1, listed)
         }}
       />
       <Button
@@ -67,24 +70,21 @@ function MoveButtons({
         disabled={last}
         icon={<IconChevronDownOutlineRegular size={ARROW_SIZE} />}
         onClick={() => {
-          prefs.move(entry.id, 1)
+          prefs.move(entry.id, 1, listed)
         }}
       />
     </span>
   )
 }
 
-function CliRow({
-  entry,
-  first,
-  last,
-  prefs,
-}: {
-  readonly entry: CliEntry
-  readonly first: boolean
-  readonly last: boolean
-  readonly prefs: CliPrefs
-}) {
+interface SwitchProps {
+  /** Takes the switch while it is on its way to the plugin. */
+  readonly busy: boolean
+  readonly onSwitch: (id: string, enabled: boolean) => void
+}
+
+function CliRow(props: RowProps & SwitchProps) {
+  const { entry, busy, onSwitch } = props
   const locked = isBuiltInChoice(entry.id)
   return (
     <li className={`${SECTION_CLASS}-row`} aria-label={entry.label}>
@@ -97,7 +97,7 @@ function CliRow({
           </span>
         )}
       </span>
-      <MoveButtons entry={entry} first={first} last={last} prefs={prefs} />
+      <MoveButtons {...props} />
       {locked ? (
         <span className={`${SECTION_CLASS}-locked`}>{LOCKED_HINT}</span>
       ) : (
@@ -105,8 +105,9 @@ function CliRow({
           checked={entry.enabled}
           label={`启用 ${entry.label}`}
           title={entry.enabled ? SWITCH_ON_TITLE : SWITCH_OFF_TITLE}
+          disabled={busy}
           onChange={(next) => {
-            prefs.setEnabled(entry.id, next)
+            onSwitch(entry.id, next)
           }}
         />
       )}
@@ -115,14 +116,29 @@ function CliRow({
 }
 
 /**
- * @param props.prefs - the CLI preferences the list reads and writes.
+ * @param props.prefs - the switcher order the list reads and writes.
+ * @param props.switches - the plugin's CLI switches the list reads and writes.
  * @returns the section.
  */
-export function CliPrefsSection({ prefs }: { readonly prefs: CliPrefs }): ReactElement {
-  const entries = listedEntries(useStore(prefs))
+export function CliPrefsSection({
+  prefs,
+  switches,
+}: {
+  readonly prefs: CliPrefs
+  readonly switches: CliSwitches
+}): ReactElement {
+  const { clis, pending, failure } = useStore(switches)
+  const entries = settingsEntries(useStore(prefs), clis)
+  const listed = entries.map((entry) => entry.id)
+  useEffect(() => {
+    switches.load()
+  }, [switches])
+  const onSwitch = (id: string, enabled: boolean): void => {
+    switches.set(id, enabled, listed)
+  }
   return (
     <section className={SECTION_CLASS}>
-      <p className="dsh-ccgui-settings-intro">{entries.length === 0 ? EMPTY_HINT : SECTION_INTRO}</p>
+      <p className="dsh-ccgui-settings-intro">{clis === undefined ? EMPTY_HINT : SECTION_INTRO}</p>
       {entries.length === 0 ? null : (
         <ul className="dsh-ccgui-settings-list">
           {entries.map((entry, index) => (
@@ -132,9 +148,18 @@ export function CliPrefsSection({ prefs }: { readonly prefs: CliPrefs }): ReactE
               first={index === 0}
               last={index === entries.length - 1}
               prefs={prefs}
+              listed={listed}
+              busy={pending.includes(entry.id)}
+              onSwitch={onSwitch}
             />
           ))}
         </ul>
+      )}
+      {failure === undefined ? null : (
+        <p className={`${SECTION_CLASS}-failure`} role="alert">
+          {FAILURE_PREFIX}
+          {failure}
+        </p>
       )}
       <p className={`${SECTION_CLASS}-more`}>{MORE_CLIS_HINT}</p>
     </section>

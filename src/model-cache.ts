@@ -5,9 +5,8 @@
  * @module dsh-ccgui/model-cache
  */
 
-import { randomUUID } from 'node:crypto'
-import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
-import { dirname } from 'node:path'
+import { readFile } from 'node:fs/promises'
+import { AtomicFile } from './atomic-file.ts'
 import type { CliChoiceList, CliEffortList, CliModelList, CliModelOption } from './model-options.ts'
 
 /** Bumped when the layout changes; a file of another version is ignored, not misread. */
@@ -97,9 +96,11 @@ const isMissing = (error: unknown): boolean => isObject(error) && error.code ===
 
 /** One cache file, with writes kept in order. */
 export class ModelCacheFile {
-  private writing: Promise<void> = Promise.resolve()
+  private readonly file: AtomicFile
 
-  constructor(private readonly path: string) {}
+  constructor(private readonly path: string) {
+    this.file = new AtomicFile(path)
+  }
 
   /**
    * Read the saved lists.
@@ -115,30 +116,11 @@ export class ModelCacheFile {
   }
 
   /**
-   * Replace the saved lists. Writes run one at a time in call order, so a later, fuller
-   * snapshot never lands under an earlier one; each goes through a temporary file, so a
-   * reader never sees half a file.
+   * Replace the saved lists; see {@link AtomicFile.write} for the ordering.
    * @param lists - every list to keep, by provider route.
    * @returns settles once this snapshot is on disk; rejects when it could not be written.
    */
   save(lists: ReadonlyMap<string, CliModelList>): Promise<void> {
-    const text = JSON.stringify({ version: CACHE_VERSION, lists: Object.fromEntries(lists) })
-    const written = this.writing.then(() => this.write(text))
-    this.writing = written.catch(() => {
-      /* the caller of this save is told; the next one still runs */
-    })
-    return written
-  }
-
-  private async write(text: string): Promise<void> {
-    const temporary = `${this.path}.${randomUUID()}.tmp`
-    await mkdir(dirname(this.path), { recursive: true })
-    try {
-      await writeFile(temporary, text, 'utf8')
-      await rename(temporary, this.path)
-    } catch (error: unknown) {
-      await rm(temporary, { force: true })
-      throw error
-    }
+    return this.file.write(JSON.stringify({ version: CACHE_VERSION, lists: Object.fromEntries(lists) }))
   }
 }
