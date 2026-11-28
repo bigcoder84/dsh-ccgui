@@ -26,7 +26,6 @@ const ROW_GAP = '2px'
 /** From the first row up to just under the folder icon in the 34px workspace row. */
 const FIRST_REACH = '9px'
 const LINE = '1px solid var(--dsw-alias-border-l4)'
-const CHIP_FILL = 'var(--dsw-alias-border-l2)'
 /**
  * Every session but the last carries the line on past its elbow. `:has()` cannot nest, so the
  * last one is found with `of S` rather than by looking for a following session.
@@ -63,11 +62,6 @@ ${GROUP} > ${CONTINUED}::after {
   top: 50%;
   bottom: 0;
   border-left: ${LINE};
-}
-${GROUP} > ${ITEM} [class*="_timestamp"] {
-  padding: 0 4px;
-  border-radius: 4px;
-  background: ${CHIP_FILL};
 }
 ${GROUP} > button {
   width: calc(100% - ${ROW_SHIFT} - ${INDENT});

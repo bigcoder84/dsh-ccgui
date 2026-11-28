@@ -43,6 +43,11 @@ describe('SESSION_TREE_STYLES', () => {
     expect(SESSION_TREE_STYLES).toContain('var(--dsh-workspace-indent, 0px)')
   })
 
+  // The session's time stays the harness's own quiet caption, with no chip behind it.
+  it("leaves the session's time as the harness draws it", () => {
+    expect(SESSION_TREE_STYLES).not.toContain('timestamp')
+  })
+
   it('moves the overflow button in line with the indented rows', () => {
     expect(SESSION_TREE_STYLES).toContain(':has(> * > [data-row-key^="workspace:"]) > button')
   })
