@@ -74,7 +74,12 @@ export const PICKER_STYLES = `
 .${PICKER_TRIGGER_CLASS} > span:not([class]) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .${PICKER_LEVEL_CLASS} { flex: none; color: var(--dsw-alias-label-tertiary); }
 .${PICKER_TRIGGER_CLASS} > span:not([class]), .${PICKER_LEVEL_CLASS} { display: var(--dsh-composer-model-text-display, block); }
-.${PICKER_BOLT_CLASS} { display: inline-flex; flex: none; color: ${ACCENT}; }
+.${PICKER_BOLT_CLASS} { display: inline-flex; flex: none; color: var(--dsw-alias-label-primary); }
+/* Another plugin's label (Codex Subscription's) draws its bolt before the model's name; the
+   button shows its own after the level instead, where a CLI's fast mode shows it. */
+.${PICKER_TRIGGER_CLASS} [data-plugin-label] svg { display: none; }
+.${PICKER_BOLT_CLASS}[data-hosted-bolt] { display: none; }
+.${PICKER_TRIGGER_CLASS}:has([data-plugin-label] svg) .${PICKER_BOLT_CLASS}[data-hosted-bolt] { display: inline-flex; }
 .${PICKER_RISK_CLASS} { width: 6px; height: 6px; flex: none; border-radius: 50%; background: var(--dsw-alias-state-warn-primary); }
 .${PICKER_CHEVRON_CLASS} { flex: none; color: var(--dsw-alias-label-caption); transition: transform 0.15s; }
 .${PICKER_TRIGGER_CLASS}[aria-expanded='true'] .${PICKER_CHEVRON_CLASS} { transform: rotate(180deg); }

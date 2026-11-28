@@ -48,6 +48,25 @@ describe('PICKER_STYLES', () => {
     expect(displayOf('access')).toBe('none')
   })
 
+  // Codex Subscription's label draws its bolt before the model's name; the button keeps one
+  // bolt, its own, after the level, the same as for a CLI's fast mode.
+  it("moves the bolt another plugin's label draws to after the level", () => {
+    const trigger = (label: string): void => {
+      document.head.innerHTML = `<style>${PICKER_STYLES}</style>`
+      document.body.innerHTML = `
+<button class="${classes.PICKER_TRIGGER_CLASS}">
+  <span data-plugin-label>${label}</span>
+  <span class="${classes.PICKER_LEVEL_CLASS}">极高</span>
+  <span id="bolt" class="${classes.PICKER_BOLT_CLASS}" data-hosted-bolt></span>
+</button>`
+    }
+    trigger('<span><svg id="drawn"></svg>GPT-6.2-Sol</span>')
+    expect(displayOf('drawn')).toBe('none')
+    expect(displayOf('bolt')).not.toBe('none')
+    trigger('<span>GPT-6.2-Sol</span>')
+    expect(displayOf('bolt')).toBe('none')
+  })
+
   it('styles every class the picker renders', () => {
     for (const name of Object.values(classes)) expect(PICKER_STYLES).toContain(`.${name}`)
   })

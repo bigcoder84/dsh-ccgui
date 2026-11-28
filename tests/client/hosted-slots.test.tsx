@@ -194,6 +194,19 @@ describe("another plugin's model labels", () => {
     )
   })
 
+  // The label's own bolt is hidden on the button by the styles, which show this one instead.
+  it("keeps a bolt after the level for the label's, and none for a CLI", () => {
+    renderPicker({ state: HARNESS_STATE, overrides: { slots: fakeSlots(label()), sessionId: 's1' } })
+    const parts = Array.from(trigger().children, (part) =>
+      part.hasAttribute('data-hosted-bolt') ? 'bolt' : part.tagName,
+    )
+    expect(parts.indexOf('bolt')).toBeGreaterThan(parts.indexOf('SPAN'))
+    expect(trigger().querySelector('[data-plugin-label]')?.textContent).toBe('⚡DeepSeek Chat')
+    cleanup()
+    renderPicker({ state: CODEX_STATE, overrides: { slots: fakeSlots(label()), sessionId: 's1' } })
+    expect(trigger().querySelector('[data-hosted-bolt]')).toBeNull()
+  })
+
   it("leaves a CLI's models to the picker", async () => {
     const h = renderPicker({ state: CODEX_STATE, overrides: { slots: fakeSlots(label()), sessionId: 's1' } })
     await openPicker(h)

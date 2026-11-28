@@ -18,6 +18,8 @@ import {
 
 const HINT = '选择模型和思考深度'
 const MARK_SIZE = 14
+/** As large as the bolt Codex Subscription draws, so the two read as one. */
+const BOLT_SIZE = 14
 
 export interface PickerTriggerProps {
   readonly buttonRef: RefObject<HTMLButtonElement>
@@ -63,13 +65,19 @@ export function PickerTrigger(props: PickerTriggerProps): ReactElement {
       onClick={props.onToggle}
     >
       {provider === undefined ? null : <ProviderMark provider={provider} size={MARK_SIZE} />}
-      <span>{props.label ?? name}</span>
+      {props.label === undefined ? <span>{name}</span> : <span data-plugin-label="">{props.label}</span>}
       {level === undefined ? null : <span className={PICKER_LEVEL_CLASS}>{level}</span>}
       {fastOn ? (
         <span className={PICKER_BOLT_CLASS}>
-          <BoltIcon size={12} on />
+          <BoltIcon size={BOLT_SIZE} on />
         </span>
       ) : null}
+      {/* Shown by the styles in place of an icon the label draws, which is the plugin's bolt. */}
+      {props.label === undefined || fastOn ? null : (
+        <span className={PICKER_BOLT_CLASS} data-hosted-bolt="" aria-hidden="true">
+          <BoltIcon size={BOLT_SIZE} on />
+        </span>
+      )}
       {riskyMode === undefined ? null : <span className={PICKER_RISK_CLASS} />}
       <ChevronIcon direction="down" size={14} className={PICKER_CHEVRON_CLASS} />
     </button>
