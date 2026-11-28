@@ -1,6 +1,6 @@
 /**
  * The picker's line icons the host's icon set does not have: the fast-mode bolt, filled when on
- * and outlined when off, the reset arrow, the search glass and the row chevrons.
+ * and outlined when off, the search glass and the row chevrons.
  * @module dsh-ccgui/client/picker/picker-icons
  */
 
@@ -59,15 +59,6 @@ export function BoltIcon({ size = 16, className, on }: IconProps & { readonly on
     >
       <path d={BOLT_PATH} />
     </svg>
-  )
-}
-
-export function ResetIcon(props: IconProps): ReactElement {
-  return (
-    <Line {...props}>
-      <path d="M3 12a9 9 0 1 0 3-6.7" />
-      <path d="M3 4v5h5" />
-    </Line>
   )
 }
 

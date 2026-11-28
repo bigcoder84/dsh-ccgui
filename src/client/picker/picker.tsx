@@ -170,7 +170,7 @@ function usePickerState(props: PickerInjected) {
   const cli = isCliRoute(provider) ? provider : undefined
   const settings = useCliSettings(props.modes, cli, { started, running, model: real.current?.model })
   const team = useTeam(props.useProjection)
-  const actions = usePickerActions({ ...props, state, settling, models, scale, team: props.team })
+  const actions = usePickerActions({ ...props, state, settling, models, team: props.team })
   useRememberSelection(real.current, pickerTabs(real, prefs).currentId, props.lastSelections)
   useRememberProviders(props.prefs, tabs.listed)
   const options = useSlotEntries(props.slots, OPTIONS_SLOT)
@@ -211,7 +211,6 @@ function Effort({ picker }: { readonly picker: PickerState }) {
       fast={speed === undefined ? undefined : { on: fastOn, pending: settings.reply?.speedPending !== undefined }}
       disabled={locked || settings.busy}
       onChoose={actions.chooseEffort}
-      onReset={actions.reset}
       onFast={() => {
         settings.choose('speed', fastOn ? 'off' : FAST_MODE_ON)
       }}

@@ -1,9 +1,9 @@
 /// <reference lib="dom" />
 
 /**
- * The picker's reasoning section: the fast-mode bolt, the level's name, the reset arrow, and
- * the slider whose filled part carries the particle field. A model with a fast tier but no
- * levels keeps the bolt alone. Dragging moves the thumb freely and
+ * The picker's reasoning section, one row tall so it weighs no more than a model row: the
+ * fast-mode bolt, the slider whose filled part carries the particle field, and the level's
+ * name. A model with a fast tier but no levels keeps the bolt alone. Dragging moves the thumb freely and
  * names the level under it; letting go snaps to the nearest level, which is the only change
  * sent. A click on the track and the arrow keys do the same in one step.
  * @module dsh-ccgui/client/picker/effort-panel
@@ -14,7 +14,7 @@ import type { KeyboardEvent, PointerEvent, ReactElement } from 'react'
 import { Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import { browserClock, startParticles } from './particle-field.ts'
 import type { EffortScale, EffortStop } from './picker-model.ts'
-import { BoltIcon, ResetIcon } from './picker-icons.tsx'
+import { BoltIcon } from './picker-icons.tsx'
 import {
   PICKER_EFFORT_CLASS,
   PICKER_EFFORT_HEAD_CLASS,
@@ -32,7 +32,6 @@ const SLIDER_LABEL = '思考深度'
 const TOP_WARNING = '用量消耗更快'
 const FAST_ON = '快速模式已开启：响应更快，用量更高'
 const FAST_OFF = '开启快速模式：响应更快，用量更高'
-const RESET_LABEL = '恢复这个模型的默认深度'
 /**
  * The host's tooltip rather than a native `title`, which shows late and in the system's own
  * style, so hovering an icon button explains it the way the harness's own buttons do. It is
@@ -40,12 +39,8 @@ const RESET_LABEL = '恢复这个模型的默认深度'
  * overflow would clip the bubble.
  */
 const TIP = { side: 'top', delayMs: 300, portal: true } as const
-/**
- * Icon sizes, in px. The bolt is a narrow glyph, so it is drawn a little larger than the reset
- * arrow for the two to read as the same size beside the level's name.
- */
+/** The bolt is a narrow glyph, so it is drawn a little larger than the row's text. */
 const BOLT_SIZE = 17
-const RESET_SIZE = 15
 
 /** Names the section of a model with a fast tier but no levels, which shows only the bolt. */
 const FAST_ONLY_LABEL = '快速模式'
@@ -64,7 +59,6 @@ export interface EffortPanelProps {
   readonly fast: { readonly on: boolean; readonly pending: boolean } | undefined
   readonly disabled: boolean
   readonly onChoose: (stop: EffortStop) => void
-  readonly onReset: () => void
   readonly onFast: () => void
 }
 
@@ -223,26 +217,12 @@ export function EffortPanel(props: EffortPanelProps): ReactElement {
             <BoltIcon size={BOLT_SIZE} on={fast?.on ?? false} />
           </button>
         </Tooltip>
-        <div>
-          <span key={label} className={PICKER_EFFORT_NAME_CLASS} data-top={scale.top} data-bump="">
-            {label}
-          </span>
-          {scale.top ? <div className={PICKER_EFFORT_WARN_CLASS}>{TOP_WARNING}</div> : null}
-        </div>
-        <Tooltip label={RESET_LABEL} {...TIP} disabled={!levels}>
-          <button
-            type="button"
-            className={PICKER_ICON_BUTTON_CLASS}
-            hidden={!levels}
-            aria-label={RESET_LABEL}
-            disabled={disabled}
-            onClick={props.onReset}
-          >
-            <ResetIcon size={RESET_SIZE} />
-          </button>
-        </Tooltip>
+        {levels ? <Track panel={props} slider={slider} /> : null}
+        <span key={label} className={PICKER_EFFORT_NAME_CLASS} data-top={scale.top} data-bump="">
+          {label}
+        </span>
       </div>
-      {levels ? <Track panel={props} slider={slider} /> : null}
+      {scale.top ? <div className={PICKER_EFFORT_WARN_CLASS}>{TOP_WARNING}</div> : null}
     </div>
   )
 }

@@ -14,7 +14,6 @@ import { SETTINGS_POLL_MS, SETTINGS_POLL_TRIES } from '../../src/client/picker/u
 import {
   CODEX_SELECTION,
   CODEX_STATE,
-  HARNESS_SELECTION,
   HARNESS_STATE,
   MODES,
   NO_SETTINGS,
@@ -98,24 +97,6 @@ describe('the reasoning slider', () => {
     fireEvent.pointerMove(track, { clientX: 9, pointerId: 1 })
     fireEvent.pointerUp(track, { clientX: 9, pointerId: 1 })
     expect(h.select).toHaveBeenCalledTimes(1)
-  })
-
-  it('goes back to the model default with the reset arrow', async () => {
-    const h = renderPicker()
-    await openPicker(h)
-    await h.user.click(screen.getByRole('button', { name: '恢复这个模型的默认深度' }))
-    expect(h.select).toHaveBeenCalledWith({ provider: 'cli-codex', model: 'gpt-6-sol', reasoningEffort: 'medium' })
-  })
-
-  // A model naming no default leaves the level to its provider, the leftmost stop.
-  it('goes back to the provider choice for a model naming no default, sending no level', async () => {
-    const h = renderPicker({
-      state: { ...HARNESS_STATE, current: { ...HARNESS_SELECTION, reasoningEffort: 'high' } },
-    })
-    await openPicker(h)
-    expect(slider().getAttribute('aria-valuemax')).toBe('4')
-    await h.user.click(screen.getByRole('button', { name: '恢复这个模型的默认深度' }))
-    expect(h.select).toHaveBeenCalledWith({ provider: 'deepseek-official', model: 'deepseek-chat' })
   })
 
   // Showing the old selection until the harness settles the new one made the picker flash.

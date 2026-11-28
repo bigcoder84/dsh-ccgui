@@ -96,7 +96,7 @@ export const CODEX_SELECTION: DirectorySelection = {
   model: 'gpt-6-sol',
   reasoningEffort: 'high',
 }
-export const HARNESS_SELECTION: DirectorySelection = { provider: 'deepseek-official', model: 'deepseek-chat' }
+const HARNESS_SELECTION: DirectorySelection = { provider: 'deepseek-official', model: 'deepseek-chat' }
 
 export const CODEX_STATE: DirectoryState = {
   groups: [CLAUDE_GROUP, CODEX_GROUP, DEEPSEEK_GROUP],

@@ -45,7 +45,7 @@ export const PICKER_OPTION_CLASS = `${P}-option`
 /** Rows other plugins add to the harness's model menu, shown in the picker (see hosted-slots.tsx). */
 export const PICKER_HOSTED_CLASS = `${P}-hosted`
 /** The slider's thumb, in pixels; the slider keeps it inside the track by half of it. */
-export const PICKER_THUMB_SIZE = 18
+export const PICKER_THUMB_SIZE = 14
 
 const ACCENT = 'var(--dsw-alias-state-business-primary)'
 const VIOLET = 'rgb(139, 92, 246)'
@@ -132,9 +132,9 @@ export const PICKER_STYLES = `
 .${PICKER_HINT_CLASS} { padding: 12px; color: var(--dsw-alias-label-tertiary); font-size: 12px; line-height: 18px; text-align: center; }
 .${PICKER_HINT_CLASS} button { margin-left: 6px; border: none; background: none; color: ${ACCENT}; font: inherit; cursor: pointer; }
 
-.${PICKER_EFFORT_HEAD_CLASS} { display: grid; grid-template-columns: 28px 1fr 28px; align-items: center; padding: 6px 8px 0; text-align: center; }
+.${PICKER_EFFORT_HEAD_CLASS} { display: flex; align-items: center; gap: 6px; padding: 5px 12px 5px 8px; }
 .${PICKER_ICON_BUTTON_CLASS} {
-  display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; padding: 0; border: none;
+  display: inline-flex; align-items: center; justify-content: center; flex: none; width: 24px; height: 24px; padding: 0; border: none;
   border-radius: 6px; background: none; color: var(--dsw-alias-label-caption); cursor: pointer;
   transition: color 0.2s, transform 0.12s;
 }
@@ -143,13 +143,13 @@ export const PICKER_STYLES = `
 .${PICKER_ICON_BUTTON_CLASS}:active { transform: scale(0.86); }
 .${PICKER_ICON_BUTTON_CLASS}[aria-pressed='true'] { color: ${ACCENT}; }
 .${PICKER_ICON_BUTTON_CLASS}[hidden] { display: inline-flex; visibility: hidden; }
-.${PICKER_EFFORT_NAME_CLASS} { display: inline-block; color: ${ACCENT}; font-size: 13px; font-weight: 600; line-height: 18px; transition: color 0.3s; }
+.${PICKER_EFFORT_NAME_CLASS} { display: inline-block; flex: none; min-width: 32px; color: ${ACCENT}; font-size: 12px; font-weight: 600; line-height: 18px; text-align: right; transition: color 0.3s; }
 .${PICKER_EFFORT_NAME_CLASS}[data-top='true'] { color: ${VIOLET}; }
 .${PICKER_EFFORT_NAME_CLASS}[data-bump] { animation: ${P}-bump 0.24s ease; }
 @keyframes ${P}-bump { from { opacity: 0.3; transform: scale(0.82); } }
-.${PICKER_EFFORT_WARN_CLASS} { color: ${VIOLET}; font-size: 11px; line-height: 14px; }
+.${PICKER_EFFORT_WARN_CLASS} { margin-top: -4px; padding: 0 12px 6px; color: ${VIOLET}; font-size: 11px; line-height: 14px; text-align: right; }
 .${PICKER_TRACK_CLASS} {
-  position: relative; height: ${THUMB}px; margin: 6px 12px 10px; border-radius: ${THUMB / 2}px;
+  position: relative; flex: 1; min-width: 0; height: ${THUMB}px; margin: 0 4px; border-radius: ${THUMB / 2}px;
   background: var(--dsw-alias-interactive-bg-active); cursor: pointer; touch-action: none; outline: none;
 }
 .${PICKER_TRACK_CLASS}:focus-visible { box-shadow: 0 0 0 2px var(--dsw-focus-ring-color, ${ACCENT}); }
@@ -159,7 +159,7 @@ export const PICKER_STYLES = `
 }
 .${PICKER_FILL_CLASS}[data-top='true'] { background: linear-gradient(90deg, ${ACCENT} 0%, rgb(124, 92, 246) 60%, rgb(154, 92, 243) 100%); }
 .${PARTICLE_CANVAS_CLASS} { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
-.${PICKER_STOP_CLASS} { position: absolute; top: 50%; width: 4px; height: 4px; margin: -2px 0 0 -2px; border-radius: 50%; background: var(--dsw-alias-label-dimmed); pointer-events: none; }
+.${PICKER_STOP_CLASS} { position: absolute; top: 50%; width: 5px; height: 5px; margin: -2.5px 0 0 -2.5px; border-radius: 50%; background: var(--dsw-alias-label-tertiary); pointer-events: none; }
 .${PICKER_THUMB_CLASS} {
   position: absolute; top: 50%; width: ${THUMB}px; height: ${THUMB}px; margin: -${THUMB / 2}px 0 0 -${THUMB / 2}px; border-radius: 50%;
   background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25); pointer-events: none; transition: left 0.26s ${EASE}, transform 0.15s;
@@ -174,7 +174,7 @@ export const PICKER_STYLES = `
 .${PICKER_HOSTED_CLASS} > [role='menuitem'] { height: 30px; padding: 0 12px; border-radius: 0; color: var(--dsw-alias-label-secondary); font-size: 12px; }
 .${PICKER_HOSTED_CLASS}:empty { display: none; }
 .${PICKER_FOOTER_ROW_CLASS} {
-  box-sizing: border-box; display: flex; align-items: center; justify-content: space-between; width: 100%; padding: 7px 12px;
+  box-sizing: border-box; display: flex; align-items: center; justify-content: space-between; width: 100%; padding: 6px 12px;
   border: none; background: none; color: var(--dsw-alias-label-secondary); font: inherit; font-size: 12px; text-align: left; cursor: pointer;
 }
 .${PICKER_FOOTER_ROW_CLASS}:hover:not(:disabled) { background: var(--dsw-alias-interactive-bg-hover); }

@@ -1,6 +1,6 @@
 /**
  * What the picker does when the user chooses: a provider tab, a model row, a level on the
- * slider, the reset arrow, the teamwork switch. Every change goes to the harness's model
+ * slider, the teamwork switch. Every change goes to the harness's model
  * directory or the harness's teamwork remote; a refusal comes back as one failure to show.
  * @module dsh-ccgui/client/picker/use-picker-actions
  */
@@ -10,7 +10,7 @@ import { selectionForChoice } from '../choices.ts'
 import type { DirectorySelection, DirectoryState } from '../choices.ts'
 import type { LastSelections } from '../last-selections.ts'
 import type { MenuModels, MenuRow } from '../menu-models.ts'
-import type { EffortScale, EffortStop } from './picker-model.ts'
+import type { EffortStop } from './picker-model.ts'
 import type { SettingsFailure } from './use-cli-settings.ts'
 
 /** Switches the session's model; the harness answers a refusal with an error. */
@@ -28,7 +28,6 @@ export interface PickerActions {
   readonly chooseTab: (id: string) => void
   readonly chooseModel: (row: MenuRow) => void
   readonly chooseEffort: (stop: EffortStop | undefined) => void
-  readonly reset: () => void
   readonly setTeam: (enabled: boolean) => void
   /** Show a failure another plugin's row reports. */
   readonly report: (text: string) => void
@@ -42,7 +41,6 @@ interface ActionDeps {
   /** A selection is on its way to the harness; another one waits for it rather than racing it. */
   readonly settling: boolean
   readonly models: MenuModels
-  readonly scale: EffortScale
   readonly select: SelectModel
   readonly lastSelections: LastSelections
   readonly team: TeamApi | undefined
@@ -55,12 +53,6 @@ const withLevel = (row: MenuRow, stop: EffortStop | undefined): DirectorySelecti
   model: row.model,
   ...(stop?.effort === undefined ? {} : { reasoningEffort: stop.effort }),
 })
-
-/** The level a model starts at: its own default, or the provider's choice when it names none. */
-function defaultStop(models: MenuModels, scale: EffortScale): EffortStop | undefined {
-  const preferred = models.current?.reasoning?.defaultEffort
-  return scale.stops.find((stop) => stop.effort === preferred) ?? scale.stops.find((stop) => stop.effort === undefined)
-}
 
 /**
  * Send selections to the harness one at a time. A change made while another is settling waits
@@ -102,7 +94,7 @@ function useQueuedSelect(
  * @returns the choices and the last failure.
  */
 export function usePickerActions(deps: ActionDeps): PickerActions {
-  const { state, models, scale, lastSelections, team } = deps
+  const { state, models, lastSelections, team } = deps
   const [failure, setFailure] = useState<SettingsFailure | undefined>()
   const fail = (text: string): void => {
     setFailure((previous) => ({ seq: (previous?.seq ?? 0) + 1, text }))
@@ -129,9 +121,6 @@ export function usePickerActions(deps: ActionDeps): PickerActions {
     },
     chooseEffort,
     report: fail,
-    reset: () => {
-      chooseEffort(defaultStop(models, scale))
-    },
     setTeam: (enabled: boolean) => {
       team?.set(enabled).then(
         (message) => {
