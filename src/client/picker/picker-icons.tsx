@@ -30,18 +30,34 @@ function Line({ size = 16, className, children }: IconProps & { readonly childre
   )
 }
 
+/**
+ * Drawn inside the box with a round-joined stroke, so its points come out rounded: the bare
+ * filled shape ends in needle tips that look sharp at the button's 14px.
+ */
+const BOLT_PATH = 'M13 3.2 5.2 13.4h6.3L11 20.8l7.8-10.2h-6.3L13 3.2Z'
+
 /** The fast-mode bolt; `on` fills it. */
 export function BoltIcon({ size = 16, className, on }: IconProps & { readonly on: boolean }): ReactElement {
   if (!on) {
     return (
       <Line size={size} className={className}>
-        <path d="M13 2 4 14h7l-1 8 9-12h-7l1-8Z" />
+        <path d={BOLT_PATH} />
       </Line>
     )
   }
   return (
-    <svg className={className} width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-      <path d="M13.5 2 4 14h7l-1.5 8L20 10h-7l.5-8Z" />
+    <svg
+      className={className}
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d={BOLT_PATH} />
     </svg>
   )
 }
