@@ -346,12 +346,12 @@ describe('readModeList', () => {
   })
 })
 
-/** Codex's fast tier, exactly as codex-acp 2.5.0 reports it to a client without boolean options. */
+/** Codex's fast tier, exactly as codex-acp 2.12.1 reports it to a client without boolean options. */
 const codexFast = (fields: object = {}): SessionConfigOption => ({
   id: 'fast-mode',
   name: 'Fast mode',
   description: '1.5x speed, increased usage',
-  category: 'model_config',
+  category: 'speed',
   type: 'select',
   currentValue: 'off',
   options: [
@@ -394,9 +394,13 @@ describe('readSpeedList', () => {
     ).toBeUndefined()
   })
 
-  // The category is codex-acp's own and not specific to speed, so it alone proves nothing.
+  // codex-acp has moved the option between categories, so only the id identifies it.
   it('does not take another setting in the same category for it', () => {
     expect(readSpeedList([codexFast({ id: 'verbosity' })])).toBeUndefined()
+  })
+
+  it('reads it under the category codex-acp 2.5 filed it in', () => {
+    expect(readSpeedList([codexFast({ category: 'model_config' })])?.configId).toBe('fast-mode')
   })
 
   // The plugin does not announce boolean options, so a boolean here is not one it can send.

@@ -71,8 +71,8 @@ const MODEL_CATEGORY = 'model'
 const MODE_CATEGORY = 'mode'
 const EFFORT_CATEGORY = 'thought_level'
 /**
- * codex-acp's id for its fast mode. ACP has no category for speed, and the one codex-acp
- * files it under, `model_config`, is not specific to it, so the id is what identifies it.
+ * codex-acp's id for its fast mode. The id has held across versions while the category moved,
+ * from `model_config` (2.5) to `speed` (2.12), so the id is what identifies it.
  */
 const SPEED_OPTION_ID = 'fast-mode'
 /** Joins a model name and the detail that distinguishes it. */

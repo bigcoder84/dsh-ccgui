@@ -55,7 +55,7 @@ const configOptions = () => [
           id: 'fast-mode',
           name: 'Fast mode',
           description: '1.5x speed, increased usage',
-          category: 'model_config',
+          category: 'speed',
           type: 'select',
           currentValue: fastMode,
           options: [

@@ -62,7 +62,7 @@ cat > "$E2E_ROOT/e2e.patch.yml" <<YAML
       - id: codex
         name: Codex CLI
         command: npx
-        args: [-y, '@agentclientprotocol/codex-acp@2.5.0']
+        args: [-y, '@agentclientprotocol/codex-acp@2.12.1']
       - id: pi
         name: PI CLI
         command: npx
